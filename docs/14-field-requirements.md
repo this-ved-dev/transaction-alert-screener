@@ -17,17 +17,17 @@ Marks: **required** = the rules cannot run without it · **derivable** = we comp
 | `credit_debit` | Debit/credit indicator, or a signed amount | **required** | **required** | Cash in and cash out are totalled separately; pass-through needs money in versus out |
 | `is_reversal` | Reversal or correction flag | derivable | derivable | A reversed deposit must not count toward the day's cash total; the code list or wire type usually marks reversals and returns |
 | `status` | Posted versus pending (memo-posted) | derivable | derivable | Rules count posted money only; we assume posted items only unless you tell us otherwise |
-| `booking_ts` | Posting date, and the time if available | **required** | **required** | Daily rules need the date; hourly runs and the 24-, 48- and 72-hour windows need the time |
+| `booking_ts` | Posting date and time, and the timezone or UTC offset they are in | **required** | **required** | Daily rules need the date; the 24-, 48- and 72-hour rules need the time in a known timezone so entries from the two feeds line up |
 | `value_date` | Effective (value) date | derivable | **required** | Core: catches back-dated postings; we use the posting date if absent. Wires: when money actually moves, for dormancy and pass-through windows |
 | `business_date` | Nothing; we compute it. Tell us the daily posting cut-off time | derivable | derivable | Cash totals are per business day; weekend, holiday and after-cut-off postings roll forward |
-| `btc_domain`, `btc_family`, `btc_subfamily` | Transaction code and description on each row, plus the full code list marking cash, ATM, reversal, fee and interest codes (or a cash indicator on each row) | **required** | derivable | Core: one mapping from your codes to cash, ATM, ACH, cheque, card, fee or interest drives every rule. Wires: always a wire; domestic versus cross-border comes from the counterparty country |
+| `btc_domain`, `btc_family`, `btc_subfamily` | Transaction code and description on each row, plus the full code list marking cash, ATM, reversal, fee and interest codes (or a cash indicator on each row) | **required** | derivable | Core: one mapping from your codes to cash, ATM, ACH, cheque, card, fee or interest drives every rule. Wires: always a wire; domestic versus cross-border comes from the counterparty bank's country |
 | `btc_proprietary` | Nothing extra: your transaction code, kept as is (and the ACH SEC code if present) | derivable | derivable | An auditor sees your original code beside the ISO code |
 | `channel` | Channel: teller, ATM, night drop, online, mobile | derivable | derivable | The ATM rule and night-drop roll-forward need it; derived from the code list or teller/terminal id if not a column. Wires: always the wire room |
 | `instrument_refs` | Cheque number, ACH trace number; for wires the UETR or Fedwire IMAD/OMAD | nice-to-have | nice-to-have | Lets the analyst find the item in the core or the wire system |
 | `debtor`, `creditor` (name) | Counterparty name: the sender for incoming, the beneficiary for outgoing (and their customer id if they bank with us) | nice-to-have | **required** | The new-beneficiary and pass-through rules need to know who sent or received the money |
-| `debtor`, `creditor` (country) | Counterparty country | — | derivable | High-risk jurisdiction rule on outbound wires abroad; we take it from the BIC unless the feed gives it (the beneficiary's country can differ from the bank's) |
+| `debtor`, `creditor` (country) | Counterparty's own country (residence or address), if the feed has it | — | nice-to-have | A high-risk party can bank elsewhere; kept apart from the bank's country and never filled in from the BIC |
 | `debtor_account`, `creditor_account` | Counterparty account number, as text | nice-to-have | **required** | A beneficiary is a bank plus an account; the new-beneficiary and transfer-splitting rules key on it |
-| `debtor_agent`, `creditor_agent` | Counterparty bank: ABA routing number or BIC, and its country | nice-to-have | **required** | Completes the beneficiary identity; the BIC gives the country for the high-risk jurisdiction rule |
+| `debtor_agent`, `creditor_agent` | Counterparty bank: ABA routing number or BIC (and the bank's country if the feed has it) | nice-to-have | **required** | Completes the beneficiary identity; the bank's country, read from the BIC, decides domestic versus cross-border and feeds the high-risk jurisdiction rule |
 | `branch_id` | Branch, or a teller id we can map to a branch | nice-to-have | — | Cross-branch splitting (version 2) and the CTR's transaction location |
 | `conductor` | Person who made the transaction at the counter, if not the account owner | nice-to-have | — | A CTR reports the person present separately from the owner; third-party cash deposits are a structuring sign |
 | `cif_id` | Account owner's customer id (CIF), on each row or in a separate account-to-customer file | **required** | **required** | Your same-day splitting definition adds deposits across all of a customer's accounts; one alert per customer per day |
@@ -41,7 +41,7 @@ Marks: **required** = the rules cannot run without it · **derivable** = we comp
 `typology_label`, the last column of our record, is a test label that only our synthetic data carries; we never ask the bank for it.
 
 ## Please also send
-1. The column layout of each feed (names, types, lengths), its delimiter and encoding, and whether it has a header row.
+1. The column layout of each feed (names, types, lengths), its delimiter and encoding, whether it has a header row, and the timezone of every date-time column (and whether it follows daylight saving).
 2. The transaction code list with descriptions.
 3. A 50-row anonymised sample of each feed. Invented names and account numbers are fine; we need the real codes and formats.
 

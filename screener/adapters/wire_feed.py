@@ -33,7 +33,7 @@ DERIVABLE = [
     "channel",
     "source_message",
     "raw_ref",
-]  # DMCT vs XBCT and the counterparty country from the BIC; channel is always WIRE_ROOM
+]  # DMCT vs XBCT from the bank's country (BIC) in *_agent, never the party's; always WIRE_ROOM
 NICE_TO_HAVE = ["instrument_refs", "purpose", "memo"]
 
 
