@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage: uv resolves and installs into /app/.venv, runtime copies the venv only.
-FROM ghcr.io/astral-sh/uv:0.5.11-python3.13-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.9.30-python3.13-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
