@@ -1,0 +1,11 @@
+country_iso2,country_name,tier,source,effective_from,effective_to,verified_on,source_url,note
+KP,North Korea,black,FATF call for action,2011-02-01,,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify in browser
+IR,Iran,black,FATF call for action,2020-02-21,,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify in browser
+MM,Myanmar,black,FATF call for action,2022-10-21,,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify in browser
+TR,Turkey,grey,FATF increased monitoring,2021-10-21,2024-06-28,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+AE,United Arab Emirates,grey,FATF increased monitoring,2022-03-04,2024-02-23,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+NG,Nigeria,grey,FATF increased monitoring,2023-02-24,2025-10-24,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+AL,Albania,grey,FATF increased monitoring,2020-02-21,2023-10-27,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+MA,Morocco,grey,FATF increased monitoring,2021-02-25,2023-02-24,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+PK,Pakistan,grey,FATF increased monitoring,2018-06-29,2022-10-21,,https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html,verify dates in browser
+MX,Mexico,internal_high,Bank internal list (SAML-D authors flag as high risk),2022-01-01,,2026-11-11,https://eprints.bournemouth.ac.uk/40982/,policy choice for the demo bank

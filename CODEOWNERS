@@ -1,0 +1,13 @@
+# One approval from an owner of the touched path is required to merge (branch protection).
+# GitHub handles are filled in by TRA-5 once everyone has accepted the repo invite.
+*                               @this-ved-dev
+/rules/r01_* /rules/r02_* /rules/r03_*        @this-ved-dev
+/screener/audit* /screener/export*            @this-ved-dev
+/.github/ /Dockerfile /docker-compose*.yml /Caddyfile /docker/   @this-ved-dev
+/rules/r04_* /rules/r07_* /rules/r08_*        @VEDANSHU_GITHUB
+/screener/engine* /screener/consolidate* /screener/scoring*   @VEDANSHU_GITHUB
+/rules/r05_* /rules/r10_* /rules/r12_*        @ABDUL_GITHUB
+/screener/adapters/ /screener/us_layer/ /screener/evaluate*   @ABDUL_GITHUB
+/rules/r06_* /rules/r09_* /rules/r11_*        @NATALIE_GITHUB
+/app/                                          @NATALIE_GITHUB
+/docs/                                         @this-ved-dev @VEDANSHU_GITHUB @ABDUL_GITHUB @NATALIE_GITHUB

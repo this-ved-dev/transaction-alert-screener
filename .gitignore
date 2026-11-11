@@ -1,0 +1,35 @@
+# data: never commit third-party rows (SAML-D is CC BY-NC-SA; Tide may be sampled with attribution only)
+data/raw/
+data/parquet/
+data/reference/ofac/*
+data/reference/un/*
+data/reference/opensanctions/*
+data/reference/iso20022/*
+!data/reference/**/.gitkeep
+!data/reference/**/README.md
+kaggle.json
+*.parquet
+!data/fixtures/fixture.parquet
+# secrets
+.env
+.env.*
+!.env.example
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+dist/
+build/
+*.egg-info/
+# django
+app/**/staticfiles/
+db.sqlite3
+# os / editors
+.DS_Store
+.idea/
+.vscode/

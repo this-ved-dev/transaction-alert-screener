@@ -1,0 +1,252 @@
+
+## 0a. edge types
+┌─────────────┬─────────┐
+│  edge_type  │    n    │
+│   varchar   │  int64  │
+├─────────────┼─────────┤
+│ transaction │ 7589749 │
+│ ownership   │   28550 │
+└─────────────┴─────────┘
+
+
+## 0b. time span
+┌─────────────────────┬────────────────────────────┬─────────┬────────────┬────────┐
+│       min(ts)       │          max(ts)           │  txns   │ fraud_txns │  pct   │
+│      timestamp      │         timestamp          │  int64  │   int128   │ double │
+├─────────────────────┼────────────────────────────┼─────────┼────────────┼────────┤
+│ 2025-01-01 00:00:00 │ 2026-01-06 18:07:40.855029 │ 7589749 │      14269 │  0.188 │
+└─────────────────────┴────────────────────────────┴─────────┴────────────┴────────┘
+
+
+## 0c. fraud by transaction type
+┌────────────┬─────────┬────────┐
+│   ttype    │    n    │ fraud  │
+│  varchar   │  int64  │ int128 │
+├────────────┼─────────┼────────┤
+│ PAYMENT    │ 5164875 │      0 │
+│ TRANSFER   │  936501 │  14088 │
+│ DEPOSIT    │  849049 │    112 │
+│ WITHDRAWAL │  639324 │     69 │
+└────────────┴─────────┴────────┘
+
+
+## 0d. cash-typed edges: who is on each side (fraud share = leakage if 100%)
+┌────────────┬────────────┬────────────┬────────┬────────┬───────────┐
+│   ttype    │  src_kind  │ same_owner │   n    │ fraud  │ pct_fraud │
+│  varchar   │  varchar   │  boolean   │ int64  │ int128 │  double   │
+├────────────┼────────────┼────────────┼────────┼────────┼───────────┤
+│ DEPOSIT    │ account    │ false      │ 848907 │     34 │       0.0 │
+│ DEPOSIT    │ account    │ true       │     64 │      0 │       0.0 │
+│ DEPOSIT    │ individual │ false      │     78 │     78 │     100.0 │
+│ WITHDRAWAL │ account    │ false      │ 639283 │     69 │      0.01 │
+│ WITHDRAWAL │ account    │ true       │     41 │      0 │       0.0 │
+└────────────┴────────────┴────────────┴────────┴────────┴───────────┘
+
+
+## 0e. node-level is_fraudulent vs edge labels (accounts)
+┌────────────┬───────┬─────────────────────┐
+│ node_fraud │ accts │ touching_fraud_edge │
+│  boolean   │ int64 │       int128        │
+├────────────┼───────┼─────────────────────┤
+│ false      │ 16819 │                   0 │
+│ true       │ 10668 │               10649 │
+└────────────┴───────┴─────────────────────┘
+
+
+## 0f. negative time_since_previous_transaction
+┌──────────────┐
+│ count_star() │
+│    int64     │
+├──────────────┤
+│       929753 │
+└──────────────┘
+
+
+## 3. label columns
+edges: ['src', 'dest', 'edge_type', 'amount', 'currency', 'is_fraudulent', 'ownership_percentage', 'ownership_start_date', 'time_since_previous_transaction', 'timestamp', 'transaction_type']
+nodes: ['account_category', 'age_group', 'business_category', 'country_code', 'creation_date', 'currency', 'gender', 'incorporation_year', 'institution_id', 'is_fraudulent', 'is_high_risk_category', 'is_high_risk_country', 'name', 'node_id', 'node_type', 'number_of_employees', 'occupation', 'risk_score']
+
+## 1a. bank (non-cash) accounts per owner
+┌────────────┬──────────┬────────┐
+│ owner_kind │ accounts │ owners │
+│  varchar   │  int64   │ int64  │
+├────────────┼──────────┼────────┤
+│ business   │        1 │    227 │
+│ business   │        2 │    220 │
+│ business   │        3 │    223 │
+│ business   │        4 │    224 │
+│ business   │        5 │    248 │
+│ individual │        0 │      8 │
+│ individual │        1 │   2653 │
+│ individual │        2 │   2700 │
+│ individual │        3 │   2639 │
+└────────────┴──────────┴────────┘
+
+
+## 1b. accounts with >1 owner
+┌──────────────┐
+│ count_star() │
+│    int64     │
+├──────────────┤
+│            0 │
+└──────────────┘
+
+
+## 1c. countries per individual's bank accounts
+┌───────────┬────────┐
+│ countries │ owners │
+│   int64   │ int64  │
+├───────────┼────────┤
+│         1 │   6281 │
+│         2 │   1578 │
+│         3 │    133 │
+└───────────┴────────┘
+
+
+## 2a. cash rows without an owning customer
+┌────────────┬──────────────┐
+│   ttype    │ count_star() │
+│  varchar   │    int64     │
+├────────────┼──────────────┤
+│ WITHDRAWAL │         1722 │
+│ DEPOSIT    │         2934 │
+└────────────┴──────────────┘
+
+
+## 2b. cash amount bands (nominal)
+┌────────────┬────────────┬────────┬────────┐
+│   ttype    │    band    │   n    │ fraud  │
+│  varchar   │  varchar   │ int64  │ int128 │
+├────────────┼────────────┼────────┼────────┤
+│ DEPOSIT    │ 1 <2k      │ 758927 │     24 │
+│ DEPOSIT    │ 2 2k-8,999 │  73369 │     41 │
+│ DEPOSIT    │ 3 9k-9,999 │  13012 │     32 │
+│ DEPOSIT    │ 4 10k-20k  │   2853 │     15 │
+│ DEPOSIT    │ 5 >20k     │    888 │      0 │
+│ WITHDRAWAL │ 1 <2k      │ 610539 │     35 │
+│ WITHDRAWAL │ 2 2k-8,999 │  20112 │     34 │
+│ WITHDRAWAL │ 3 9k-9,999 │   8673 │      0 │
+└────────────┴────────────┴────────┴────────┘
+
+
+## 2c. R1 customer-business-days with cash > 10,000 (nominal)
+┌─────────┬───────────┬───────────┬────────────┬────────────┐
+│   dir   │ cust_days │ customers │ with_fraud │ at_10k_20k │
+│ varchar │   int64   │   int64   │   int128   │   int128   │
+├─────────┼───────────┼───────────┼────────────┼────────────┤
+│ in      │     24469 │      1358 │         19 │      18635 │
+│ out     │       701 │       639 │          0 │        696 │
+└─────────┴───────────┴───────────┴────────────┴────────────┘
+
+
+## 2d. R2a >=3 cash-ins of 2k-9,999 in 5 business days totalling >=15k (nominal)
+┌───────────────┬─────────────────┬──────────────────────────────┬──────────────────────┐
+│ hit_customers │ hits_with_fraud │ customers_with_fraud_cash_in │        recall        │
+│     int64     │      int64      │            int64             │        double        │
+├───────────────┼─────────────────┼──────────────────────────────┼──────────────────────┤
+│           473 │               3 │                          107 │ 0.028037383177570093 │
+└───────────────┴─────────────────┴──────────────────────────────┴──────────────────────┘
+
+
+## 2e. R2b 30-day cash-in >=25k with none >9,999 (nominal)
+┌───────────────┬─────────────────┐
+│ hit_customers │ hits_with_fraud │
+│     int64     │      int64      │
+├───────────────┼─────────────────┤
+│           492 │               5 │
+└───────────────┴─────────────────┘
+
+
+## 2f. R3 >=2 cash-ins of 9k-10k on one business day (nominal)
+┌───────────┬───────────┬────────────┐
+│ cust_days │ customers │ with_fraud │
+│   int64   │   int64   │   int128   │
+├───────────┼───────────┼────────────┤
+│       552 │       300 │          0 │
+└───────────┴───────────┴────────────┘
+
+
+## 2b. cash amount bands (usd)
+┌────────────┬────────────┬────────┬────────┐
+│   ttype    │    band    │   n    │ fraud  │
+│  varchar   │  varchar   │ int64  │ int128 │
+├────────────┼────────────┼────────┼────────┤
+│ DEPOSIT    │ 1 <2k      │ 773077 │     24 │
+│ DEPOSIT    │ 2 2k-8,999 │  54659 │     16 │
+│ DEPOSIT    │ 3 9k-9,999 │   8321 │     24 │
+│ DEPOSIT    │ 4 10k-20k  │  12196 │     48 │
+│ DEPOSIT    │ 5 >20k     │    796 │      0 │
+│ WITHDRAWAL │ 1 <2k      │ 615150 │     44 │
+│ WITHDRAWAL │ 2 2k-8,999 │  12072 │     25 │
+│ WITHDRAWAL │ 3 9k-9,999 │   5399 │      0 │
+│ WITHDRAWAL │ 4 10k-20k  │   6703 │      0 │
+└────────────┴────────────┴────────┴────────┘
+
+
+## 2c. R1 customer-business-days with cash > 10,000 (usd)
+┌─────────┬───────────┬───────────┬────────────┬────────────┐
+│   dir   │ cust_days │ customers │ with_fraud │ at_10k_20k │
+│ varchar │   int64   │   int64   │   int128   │   int128   │
+├─────────┼───────────┼───────────┼────────────┼────────────┤
+│ in      │     23129 │      3045 │         51 │      18784 │
+│ out     │      7140 │      3627 │          0 │       7079 │
+└─────────┴───────────┴───────────┴────────────┴────────────┘
+
+
+## 2d. R2a >=3 cash-ins of 2k-9,999 in 5 business days totalling >=15k (usd)
+┌───────────────┬─────────────────┬──────────────────────────────┬────────┐
+│ hit_customers │ hits_with_fraud │ customers_with_fraud_cash_in │ recall │
+│     int64     │      int64      │            int64             │ double │
+├───────────────┼─────────────────┼──────────────────────────────┼────────┤
+│           466 │               0 │                          107 │    0.0 │
+└───────────────┴─────────────────┴──────────────────────────────┴────────┘
+
+
+## 2e. R2b 30-day cash-in >=25k with none >9,999 (usd)
+┌───────────────┬─────────────────┐
+│ hit_customers │ hits_with_fraud │
+│     int64     │      int64      │
+├───────────────┼─────────────────┤
+│           463 │               3 │
+└───────────────┴─────────────────┘
+
+
+## 2f. R3 >=2 cash-ins of 9k-10k on one business day (usd)
+┌───────────┬───────────┬────────────┐
+│ cust_days │ customers │ with_fraud │
+│   int64   │   int64   │   int128   │
+├───────────┼───────────┼────────────┤
+│       259 │       190 │          0 │
+└───────────┴───────────┴────────────┘
+
+
+## 6. R4 gaps >=180 days, then >=$5k within 7 days (USD)
+┌───────────────┬──────────┬───────────────┬────────────┐
+│ reactivations │ accounts │ with_5k_in_7d │ with_fraud │
+│     int64     │  int64   │     int64     │   int64    │
+├───────────────┼──────────┼───────────────┼────────────┤
+│             0 │        0 │             0 │          0 │
+└───────────────┴──────────┴───────────────┴────────────┘
+
+
+## 6b. bank accounts by last-seen gap before data end
+┌────────────────┬──────────┐
+│ idle_last_180d │ accounts │
+│     int64      │  int64   │
+├────────────────┼──────────┤
+│              0 │    19486 │
+└────────────────┴──────────┘
+
+┌───────────────────┬───────┬──────────────┬────────────┬──────────────┬────────────┬───────────────┬───────────────┐
+│ inbound_5k_events │ hits  │ hit_accounts │ hits_fraud │ fraud_events │ recall_pct │ precision_pct │ base_rate_pct │
+│       int64       │ int64 │    int64     │   int64    │    int64     │   double   │    double     │    double     │
+├───────────────────┼───────┼──────────────┼────────────┼──────────────┼────────────┼───────────────┼───────────────┤
+│            225403 │ 14697 │         6254 │       3301 │         5017 │       65.8 │          22.5 │          2.23 │
+└───────────────────┴───────┴──────────────┴────────────┴──────────────┴────────────┴───────────────┴───────────────┘
+
+┌────────────────────┬─────────────┬─────────────┬───────────────────┐
+│ fraud_src_accounts │ fraud_edges │ median(amt) │        p90        │
+│       int64        │    int64    │   double    │      double       │
+├────────────────────┼─────────────┼─────────────┼───────────────────┤
+│               9908 │       14269 │     2182.38 │ 9073.038654766904 │
+└────────────────────┴─────────────┴─────────────┴───────────────────┘

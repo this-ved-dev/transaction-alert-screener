@@ -1,0 +1,2 @@
+# minute hour dom month dow  command           (container timezone is UTC; 06:30 UTC = 01:30 ET)
+30 6 * * *  screener run --day yesterday >> /proc/1/fd/1 2>&1

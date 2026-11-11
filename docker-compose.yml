@@ -1,0 +1,55 @@
+name: transaction-alert-screener
+services:
+  app:
+    build: .
+    image: transaction-alert-screener:local
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://screener_app:${POSTGRES_APP_PASSWORD}@db:5432/screener
+    volumes:
+      - data:/data
+    depends_on:
+      db: { condition: service_healthy }
+    expose: ["8000"]
+    restart: unless-stopped
+  scheduler:
+    image: transaction-alert-screener:local
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://screener_app:${POSTGRES_APP_PASSWORD}@db:5432/screener
+    volumes:
+      - data:/data
+      - ./docker/crontab:/etc/crontab:ro
+    depends_on:
+      db: { condition: service_healthy }
+    # nightly batch: `screener run --day yesterday` (TRA-21). supercronic is pip-free and logs to stdout.
+    entrypoint: ["/bin/sh", "-c", "curl -fsSL -o /tmp/supercronic https://github.com/aptible/supercronic/releases/download/v0.2.33/supercronic-linux-amd64 && chmod +x /tmp/supercronic && /tmp/supercronic /etc/crontab"]
+    restart: unless-stopped
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: screener
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: screener
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/10-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U screener"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  caddy:
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [app]
+    restart: unless-stopped
+volumes:
+  data: {}
+  pgdata: {}
+  caddy_data: {}

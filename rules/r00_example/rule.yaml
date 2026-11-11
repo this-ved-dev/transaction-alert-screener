@@ -1,0 +1,18 @@
+# Example rule folder. Copy this directory to rules/rNN_<slug>/ and edit. See docs/05-architecture.md § Day-0 contracts.
+id: r00
+name: Example cash-in total above a threshold
+owner: example
+version: 1
+mode: "off"                    # live | shadow | off
+key: customer                  # aggregation key the hit is reported on
+windows:
+  lookback_days: 1
+params:
+  threshold_usd: 10000.00      # every param key must be referenced in rule.sql as {{ params.<key> }}
+weight: 1.0
+red_flag_ids: [RF-004]
+budget_per_month: 10
+tier_multipliers: { low: 1.5, medium: 1.0, high: 0.5 }
+description: >
+  Example only. Sums cash-in entries per customer per business day and fires when the total
+  exceeds the threshold. Demonstrates the five-column hit contract and parameter templating.

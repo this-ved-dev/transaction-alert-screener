@@ -1,0 +1,190 @@
+
+## 0. shape
+┌─────────────────────┬─────────────────────┬─────────┬────────────┐
+│       min(ts)       │       max(ts)       │  rows   │ laundering │
+│      timestamp      │      timestamp      │  int64  │   int128   │
+├─────────────────────┼─────────────────────┼─────────┼────────────┤
+│ 2022-10-07 10:35:19 │ 2023-08-23 10:57:12 │ 9504852 │       9873 │
+└─────────────────────┴─────────────────────┴─────────┴────────────┘
+
+
+## 0b. payment types
+┌─────────────────┬─────────┬────────────┐
+│      ptype      │    n    │ laundering │
+│     varchar     │  int64  │   int128   │
+├─────────────────┼─────────┼────────────┤
+│ Credit card     │ 2012909 │       1136 │
+│ Debit card      │ 2012103 │       1124 │
+│ Cheque          │ 2011419 │       1087 │
+│ ACH             │ 2008807 │       1159 │
+│ Cross-border    │  933931 │       2628 │
+│ Cash Withdrawal │  300477 │       1334 │
+│ Cash Deposit    │  225206 │       1405 │
+└─────────────────┴─────────┴────────────┘
+
+
+## 4a. payment type mix
+┌─────────────┬──────────────┬───────┐
+│    ltype    │    ptype     │   n   │
+│   varchar   │   varchar    │ int64 │
+├─────────────┼──────────────┼───────┤
+│ Smurfing    │ Cash Deposit │   932 │
+│ Structuring │ ACH          │   285 │
+│ Structuring │ Cheque       │   290 │
+│ Structuring │ Credit card  │   299 │
+│ Structuring │ Cross-border │   723 │
+│ Structuring │ Debit card   │   273 │
+└─────────────┴──────────────┴───────┘
+
+
+## 4b. amount quantiles
+┌─────────────┬──────────────┬───────┬──────────┬───┬──────────┬────────────────────┬──────────┬─────────────┐
+│    ltype    │    ptype     │   n   │ min(amt) │ … │   p50    │        p75         │ max(amt) │ pct_2k_9999 │
+│   varchar   │   varchar    │ int64 │  double  │ … │  double  │       double       │  double  │   double    │
+├─────────────┼──────────────┼───────┼──────────┼───┼──────────┼────────────────────┼──────────┼─────────────┤
+│ Smurfing    │ Cash Deposit │   932 │  1007.96 │ … │ 2629.425 │ 3427.8224999999998 │  6985.28 │        71.9 │
+│ Structuring │ ACH          │   285 │  2130.26 │ … │  5102.25 │            6782.01 │  12454.4 │        97.5 │
+│ Structuring │ Cheque       │   290 │  2080.42 │ … │ 4855.995 │  6203.317499999999 │ 11654.67 │        98.3 │
+│ Structuring │ Credit card  │   299 │   2078.6 │ … │  5324.03 │           7037.615 │ 12404.53 │        96.7 │
+│ Structuring │ Cross-border │   723 │  2177.23 │ … │  4546.27 │            5942.65 │ 12033.92 │        98.3 │
+│ Structuring │ Debit card   │   273 │  2124.58 │ … │  4935.11 │            7072.05 │ 12275.48 │        98.9 │
+└─────────────┴──────────────┴───────┴──────────┴───┴──────────┴────────────────────┴──────────┴─────────────┘
+  6 rows                                                                                 9 columns (8 shown)
+
+
+## 4c. clustering by snd: rows and day span per account
+┌─────────────┬──────────┬──────────┬──────────┬───────────────┬───────────────────────┐
+│    ltype    │ accounts │ rows_med │ rows_max │ days_span_med │ pct_accts_3plus_in_5d │
+│   varchar   │  int64   │  double  │  int64   │    double     │        double         │
+├─────────────┼──────────┼──────────┼──────────┼───────────────┼───────────────────────┤
+│ Smurfing    │       63 │     15.0 │       30 │         121.0 │                 100.0 │
+│ Structuring │     1870 │      1.0 │        1 │           0.0 │                   0.0 │
+└─────────────┴──────────┴──────────┴──────────┴───────────────┴───────────────────────┘
+
+
+## 4c. clustering by rcv: rows and day span per account
+┌─────────────┬──────────┬──────────┬──────────┬───────────────┬───────────────────────┐
+│    ltype    │ accounts │ rows_med │ rows_max │ days_span_med │ pct_accts_3plus_in_5d │
+│   varchar   │  int64   │  double  │  int64   │    double     │        double         │
+├─────────────┼──────────┼──────────┼──────────┼───────────────┼───────────────────────┤
+│ Smurfing    │       63 │     15.0 │       30 │         121.0 │                 100.0 │
+│ Structuring │       75 │     24.0 │       47 │         191.0 │                 100.0 │
+└─────────────┴──────────┴──────────┴──────────┴───────────────┴───────────────────────┘
+
+
+## 5. distinct accounts per side of cash rows
+┌─────────────────┬────────┬───────────┬───────────┬───────────┐
+│      ptype      │   n    │ snd_accts │ rcv_accts │ self_rows │
+│     varchar     │ int64  │   int64   │   int64   │  int128   │
+├─────────────────┼────────┼───────────┼───────────┼───────────┤
+│ Cash Withdrawal │ 300477 │     15009 │     23517 │         0 │
+│ Cash Deposit    │ 225206 │     24328 │     15179 │         0 │
+└─────────────────┴────────┴───────────┴───────────┴───────────┘
+
+customer side: {'Cash Withdrawal': 'rcv', 'Cash Deposit': 'snd'}
+
+## R2a. >=3 cash deposits of 2k-9,999 in 5 business days totalling >=15k (customer = account)
+┌───────────────┬──────────────────────┬───────────────────────┬───────────────────────┬────────────┐
+│ hit_customers │ hits_with_laundering │ hits_with_structuring │ structuring_customers │ recall_pct │
+│     int64     │        int64         │         int64         │         int64         │   double   │
+├───────────────┼──────────────────────┼───────────────────────┼───────────────────────┼────────────┤
+│            40 │                   36 │                    36 │                    63 │       57.1 │
+└───────────────┴──────────────────────┴───────────────────────┴───────────────────────┴────────────┘
+
+
+## R2b. 30-day cash deposits >=25k with none >9,999
+┌───────────────┬───────────────────────┐
+│ hit_customers │ hits_with_structuring │
+│     int64     │         int64         │
+├───────────────┼───────────────────────┤
+│            15 │                    15 │
+└───────────────┴───────────────────────┘
+
+
+## Stretch 16. >=3 non-cash payments <10k to one receiver in 7 days totalling >10k
+┌───────────────┬───────────────────────┬───────────────────────┐
+│ hit_receivers │ hits_with_structuring │ structuring_receivers │
+│     int64     │         int64         │         int64         │
+├───────────────┼───────────────────────┼───────────────────────┤
+│        161853 │                    75 │                    75 │
+└───────────────┴───────────────────────┴───────────────────────┘
+
+
+## R3. >=2 cash deposits of 9k-10k on one business day
+┌───────────┬───────────┬─────────────────┬──────────────────┐
+│ cust_days │ customers │ with_laundering │ with_structuring │
+│   int64   │   int64   │     int128      │      int128      │
+├───────────┼───────────┼─────────────────┼──────────────────┤
+│         0 │         0 │            NULL │             NULL │
+└───────────┴───────────┴─────────────────┴──────────────────┘
+
+
+## R1. customer-business-days with cash deposits > 10,000
+┌───────────┬───────────┬─────────────────┐
+│ cust_days │ customers │ with_laundering │
+│   int64   │   int64   │     int128      │
+├───────────┼───────────┼─────────────────┤
+│       195 │       195 │             150 │
+└───────────┴───────────┴─────────────────┘
+
+
+## 6. gaps >=180 days per account, then >=5,000 within 7 days
+┌───────────────┬──────────┬───────────────┬─────────────────┐
+│ reactivations │ accounts │ with_5k_in_7d │ with_laundering │
+│     int64     │  int64   │     int64     │      int64      │
+├───────────────┼──────────┼───────────────┼─────────────────┤
+│         10420 │    10420 │          3730 │               2 │
+└───────────────┴──────────┴───────────────┴─────────────────┘
+
+ 99% ▕█████████████████████████████████████▌▏ (<1 second remaining)     100% ▕██████████████████████████████████████▏ (00:00:02.00 elapsed)
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+    print(c.sql('''select count(*) inbound_5k, count(*) filter (where out_amt >= 0.8*amt) hits, count(distinct acct) filter (where out_amt >= 0.8*amt) hit_accounts,
+          ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     count(*) filter (where out_amt >= 0.8*amt and (il or ol)) hits_laundering, count(*) filter (where il or ol) laundering_events,
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+     round(100.0*count(*) filter (where il or ol)/count(*),2) base_pct,
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     (select count(distinct snd)+0 from t) accts, date_diff('day',(select min(ts) from t),(select max(ts) from t)) days from r5'''))
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-502/-Users-Vedant-Misra-Desktop-Assignments-Week4-Transaction-Alert-Screener/0111d353-61ee-44ed-ad3b-a2e25f0af0f5/scratchpad/venv/lib/python3.14/site-packages/duckdb/_relation.py", line 4346, in _connection_sql
+    return sql(self, query, alias, params)
+  File "/private/tmp/claude-502/-Users-Vedant-Misra-Desktop-Assignments-Week4-Transaction-Alert-Screener/0111d353-61ee-44ed-ad3b-a2e25f0af0f5/scratchpad/venv/lib/python3.14/site-packages/duckdb/_relation.py", line 3485, in sql
+    kept, text, kind, parsed = _seam.prepare_script_parsed(con, query, params)  # type: ignore[arg-type]
+                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-502/-Users-Vedant-Misra-Desktop-Assignments-Week4-Transaction-Alert-Screener/0111d353-61ee-44ed-ad3b-a2e25f0af0f5/scratchpad/venv/lib/python3.14/site-packages/duckdb/_seam.py", line 124, in prepare_script_parsed
+    kept, last_text, last_type, statement = con._prepare_script(query, values, with_statement=True)
+                                            ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.ParserException: Parser Error: syntax error at or near "days"
+
+LINE 6: ...('day',(select min(ts) from t),(select max(ts) from t)) days from r5
+                                                                   ^^^^
+## R5 on SAML-D: inbound >=5,000 then >=80% out within 72h
+┌────────────┬────────┬──────────────┬─────────────────┬───────────────────┬────────────┬───────────────┬──────────┐
+│ inbound_5k │  hits  │ hit_accounts │ hits_laundering │ laundering_events │ recall_pct │ precision_pct │ base_pct │
+│   int64    │ int64  │    int64     │      int64      │       int64       │   double   │    double     │  double  │
+├────────────┼────────┼──────────────┼─────────────────┼───────────────────┼────────────┼───────────────┼──────────┤
+│    5630972 │ 861114 │        28396 │            3449 │              9385 │       36.8 │           0.4 │     0.17 │
+└────────────┴────────┴──────────────┴─────────────────┴───────────────────┴────────────┴───────────────┴──────────┘
+
+┌───────────────────┬───────┐
+│        lt         │   n   │
+│      varchar      │ int64 │
+├───────────────────┼───────┤
+│ Normal_Fan_In     │  1389 │
+│ Normal_Group      │   710 │
+│ Cycle             │   299 │
+│ Deposit-Send      │   280 │
+│ Structuring       │   192 │
+│ Layered_Fan_In    │    88 │
+│ Stacked Bipartite │    83 │
+│ Layered_Fan_Out   │    71 │
+└───────────────────┴───────┘
+
+┌──────────┐
+│ accounts │
+│  int64   │
+├──────────┤
+│   855460 │
+└──────────┘

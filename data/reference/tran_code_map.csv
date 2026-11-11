@@ -1,0 +1,16 @@
+# Maps a source's transaction type to the ISO 20022 BankTransactionCode triplet and our channel.
+# source: saml_d | tide | fixture | core_csv. Codes verified against BTC description v8.0 (Nov 2025).
+source,source_code,direction,btc_domain,btc_family,btc_subfamily,btc_proprietary,channel,cash_flag,note
+saml_d,Cash Deposit,CRDT,PMNT,CNTR,CDPT,,TELLER,true,depositor is the sender account
+saml_d,Cash Withdrawal,DBIT,PMNT,CNTR,CWDL,,TELLER,true,withdrawer is the receiver account; US layer relabels <=1000 as ATM p=0.7
+saml_d,Cash Withdrawal:ATM,DBIT,PMNT,CCRD,CWDL,,ATM,true,assigned by us_layer/channels.py
+saml_d,ACH,CRDT|DBIT,PMNT,RCDT|ICDT,ATXN,PPD|CCD|WEB,ONLINE,false,SEC code seeded by the US layer
+saml_d,ACH:P2P,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT,ZELLE,MOBILE,false,synthetic P2P share; disclosed
+saml_d,Cross-border,CRDT|DBIT,PMNT,RCDT|ICDT,XBCT,,WIRE_ROOM,false,international wire
+saml_d,Cheque,CRDT|DBIT,PMNT,RCHQ|ICHQ,CCHQ,,BRANCH,false,
+saml_d,Credit card,DBIT,PMNT,CCRD,POSC,,POS,false,
+saml_d,Debit card,DBIT,PMNT,CCRD,POSD,,POS,false,US layer relabels <1000 personal-to-personal as P2P p=0.3
+tide,DEPOSIT,CRDT,PMNT,CNTR,CDPT,,TELLER,true,read as cash-in to the receiving account
+tide,WITHDRAWAL,DBIT,PMNT,CNTR,CWDL,,TELLER,true,
+tide,TRANSFER,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT,,ONLINE,false,XBCT when counterparty country differs
+tide,PAYMENT,DBIT,PMNT,CCRD,POSD,,POS,false,

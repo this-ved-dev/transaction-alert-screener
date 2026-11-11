@@ -1,0 +1,17 @@
+{# Evidence-panel contract: included by app/templates/alerts/alert_detail.html once per hit.
+   Context: hit (dict with rule_id, rule_version, params, computed_values), txns (list of canonical entries).
+   Autoescaping is ON; never mark memo text safe. Keep it to what an analyst needs to decide. #}
+<section class="evidence" data-rule="{{ hit.rule_id }}">
+  <h3>{{ hit.rule_name }} <small>v{{ hit.rule_version }}</small></h3>
+  <p>Cash in on {{ hit.business_day }}: <strong>${{ hit.computed_values.cash_in_total }}</strong>
+     (threshold ${{ hit.params.threshold_usd }}).</p>
+  <table>
+    <thead><tr><th>Entry</th><th>Booked</th><th>Amount</th><th>Branch</th><th>Memo</th></tr></thead>
+    <tbody>
+    {% for t in txns %}
+      <tr><td>{{ t.entry_id }}</td><td>{{ t.booking_ts }}</td><td>${{ t.amount }}</td><td>{{ t.branch_id }}</td><td>{{ t.memo }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="redflag">Red flag: {{ hit.red_flags.0.text }} <a href="{{ hit.red_flags.0.url }}">source</a></p>
+</section>

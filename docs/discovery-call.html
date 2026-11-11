@@ -1,0 +1,782 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AML Discovery Session</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap">
+<style>
+/* Layout: a 16:9 examiner's workpaper. Phase rail on top, findings in the middle, citations and audit tickmarks in the footer. */
+:root{
+  --paper:#E8ECEF; --sheet:#FBFCFC; --ink:#13212C; --ink-2:#506170; --rule:#D3DBE0;
+  --accent:#0E7A66; --accent-soft:#DDEFEA;          /* cheque-paper green */
+  --flag:#B83A26; --flag-soft:#F8E3DE;              /* examiner's red pencil */
+  --meas:#2D5F9A; --meas-soft:#E1EAF5;
+  --est:#94650F; --est-soft:#F5ECD6;
+  --anec:#5F6B75; --anec-soft:#E6EAED;
+  --shadow:0 1px 2px rgba(19,33,44,.06),0 14px 44px rgba(19,33,44,.12);
+  --f-display:"Source Serif 4","Iowan Old Style",Georgia,serif;
+  --f-body:"IBM Plex Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --ease:cubic-bezier(.2,.7,.2,1);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0A1117; --sheet:#111B23; --ink:#E3E9ED; --ink-2:#9AA8B3; --rule:#263440;
+  --accent:#3DBFA3; --accent-soft:#0F302A; --flag:#EE7A62; --flag-soft:#3A1B15;
+  --meas:#82AEE3; --meas-soft:#15263A; --est:#DDB15A; --est-soft:#30260F; --anec:#A1ADB6; --anec-soft:#1D2730;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 44px rgba(0,0,0,.5); color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --paper:#0A1117; --sheet:#111B23; --ink:#E3E9ED; --ink-2:#9AA8B3; --rule:#263440;
+  --accent:#3DBFA3; --accent-soft:#0F302A; --flag:#EE7A62; --flag-soft:#3A1B15;
+  --meas:#82AEE3; --meas-soft:#15263A; --est:#DDB15A; --est-soft:#30260F; --anec:#A1ADB6; --anec-soft:#1D2730;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 14px 44px rgba(0,0,0,.5); color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-body);overflow:hidden;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* stage */
+.stage{position:fixed;left:50%;top:50%;width:1600px;height:900px;transform:translate(-50%,-50%) scale(var(--s,.5));
+  background:var(--sheet);border-radius:6px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.rail{flex:none;height:68px;display:flex;align-items:center;gap:40px;padding-inline:56px;border-bottom:1px solid var(--rule)}
+.brand{font:500 13px/1.2 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
+.phases{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.ph{display:grid;gap:8px;padding:6px 0;border:0;background:none;text-align:left;cursor:pointer;
+  font:500 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.ph.is-current{color:var(--ink)}
+.track{height:4px;border-radius:2px;background:var(--rule);overflow:hidden}
+.fill{display:block;height:100%;width:0;background:var(--accent);transition:width .6s var(--ease)}
+.pager{display:flex;align-items:center;gap:6px;font:500 14px/1 var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.pager button{width:36px;height:36px;border:1px solid var(--rule);border-radius:4px;background:var(--sheet);color:var(--ink);cursor:pointer;font-size:20px;line-height:1}
+.pager button:hover{border-color:var(--ink-2)}
+#counter{min-width:56px;text-align:center}
+.deck{position:relative;flex:1}
+.slide{position:absolute;inset:0;padding:34px 56px 24px;display:flex;flex-direction:column;gap:22px;
+  opacity:0;visibility:hidden;transform:translateY(12px);
+  transition:opacity .45s var(--ease),transform .55s var(--ease),visibility 0s linear .55s}
+.slide.is-active{opacity:1;visibility:visible;transform:none;transition:opacity .45s var(--ease) .08s,transform .55s var(--ease) .08s,visibility 0s}
+.toast{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--sheet);padding:12px 18px;border-radius:6px;font-size:16px;z-index:5}
+
+/* shared type */
+.eyebrow{margin-bottom:10px;font:500 14px/1.2 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h2{font:600 46px/1.08 var(--f-display);letter-spacing:-.012em}
+h3{font:600 19px/1.25 var(--f-body)}
+.sh{display:flex;justify-content:space-between;align-items:flex-end;gap:32px}
+.sh-note{font:500 20px/1.3 var(--f-body);color:var(--ink-2)}
+.ribbon{flex:none;font:500 13px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--est);border:1px dashed var(--est);border-radius:4px;padding:9px 12px}
+.col-h{font:600 14px/1.3 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
+.col-h span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink-2);margin-left:6px}
+.sf{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;gap:32px;padding-top:12px;border-top:1px solid var(--rule);
+  font:400 13px/1.45 var(--f-mono);color:var(--ink-2)}
+.legend{flex:none;display:flex;gap:12px;align-items:center;white-space:nowrap}
+.tk{display:inline-flex;align-items:center;gap:5px;font:500 12px/1 var(--f-mono);padding:4px 6px;border-radius:3px;white-space:nowrap;vertical-align:middle}
+.tk.v{color:var(--accent);background:var(--accent-soft)}
+.tk.m{color:var(--meas);background:var(--meas-soft)}
+.tk.e{color:var(--est);background:var(--est-soft)}
+.tk.a{color:var(--anec);background:var(--anec-soft)}
+.take{font:600 25px/1.3 var(--f-display);max-width:58ch;text-wrap:balance}
+.ask{display:flex;gap:14px;align-items:baseline;font:500 21px/1.4 var(--f-body);max-width:46ch}
+.ask b{flex:none;position:relative;top:-2px;font:600 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--sheet);background:var(--ink);padding:6px 9px;border-radius:3px}
+.bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:48px}
+
+/* motion: every effect runs only on the active slide and rests in its final state */
+@keyframes rise{from{opacity:0;transform:translateY(14px)}}
+@keyframes drop{from{opacity:0;transform:translateY(-18px)}}
+@keyframes grow{from{transform:scaleX(0)}}
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes pop{from{transform:scale(0)}}
+@keyframes pulse{50%{opacity:.3}}
+.is-active .rv{animation:rise .7s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.is-active .drop{animation:drop .65s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.is-active .grow{transform-origin:left;animation:grow .9s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.is-active .pop{animation:pop .45s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.is-active .draw{stroke-dasharray:1 1;animation:draw .8s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.is-active .pulse{animation:pulse 1.8s ease-in-out infinite 1.6s}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* 1 */
+.s1{gap:26px}
+.hook{margin-top:14px;max-width:1340px;font:600 58px/1.12 var(--f-display);letter-spacing:-.015em}
+.lede{font-size:24px;line-height:1.45;color:var(--ink-2);max-width:62ch}
+.agenda{display:grid;gap:10px;margin-top:6px}
+.axis{position:relative;height:22px;font:500 12px/1 var(--f-mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.axis span{position:absolute;bottom:6px;transform:translateX(-50%);white-space:nowrap}
+.axis span:first-child{transform:none}
+.axis span:last-child{transform:translateX(-100%)}
+.axis.below{border-top:1px solid var(--rule)}
+.axis.below span{bottom:auto;top:6px}
+.segs{display:flex}
+.seg{flex:var(--m);display:grid;gap:10px;align-content:start;min-width:0;padding-right:4px}
+.seg-bar{height:58px;display:flex;align-items:center;padding-inline:16px;border-radius:3px;background:var(--accent-soft);color:var(--ink);font:600 19px/1 var(--f-body)}
+.seg:first-child .seg-bar{background:var(--accent);color:var(--sheet)}
+.seg p{font-size:16px;line-height:1.35;color:var(--ink-2);padding-right:10px}
+.seg p b{display:block;font:500 13px/1.4 var(--f-mono);color:var(--ink)}
+.team{margin-top:auto;display:grid;gap:10px}
+.people{display:flex;flex-wrap:wrap;gap:10px 30px;font-size:17px;color:var(--ink-2)}
+.people b{color:var(--ink);font-weight:600;margin-right:6px}
+
+/* 2 */
+.flow{display:grid;grid-template-columns:repeat(4,1fr 60px) 1fr;row-gap:14px;margin-top:6px}
+.node{grid-row:1;display:grid;align-content:start;gap:8px;padding:18px 18px 20px;border:1px solid var(--rule);border-radius:4px;background:var(--sheet)}
+.node h3{font:600 23px/1.2 var(--f-display)}
+.node p{font-size:17px;line-height:1.4;color:var(--ink-2)}
+.k{font:500 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.node.flag{border-color:var(--flag);background:var(--flag-soft)}
+.node.flag .k{color:var(--flag)}
+.conn{grid-row:1;align-self:center;width:60px;height:24px;overflow:visible;fill:none;stroke:var(--ink-2);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.conn.gap{stroke:var(--flag)}
+.pains{grid-row:2;grid-column:3;display:flex;flex-wrap:wrap;gap:8px;align-content:start}
+.chip{font:500 14px/1 var(--f-body);padding:8px 11px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.gap-note{grid-row:2;grid-column:5/8;justify-self:center;max-width:360px;text-align:center;font:600 18px/1.35 var(--f-body);color:var(--flag)}
+.prompts{display:grid;gap:14px;margin-top:auto}
+.prompts h3{font:600 30px/1.2 var(--f-display)}
+.prompt-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.prompt{display:grid;align-content:start;gap:10px;padding:18px 20px 20px;border-radius:4px;background:var(--paper)}
+.prompt p{font:500 23px/1.35 var(--f-body)}
+
+/* 3 */
+.life{flex:1;min-height:0;display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:1fr auto 1fr;column-gap:22px}
+.lc{grid-row:1/4;display:grid;grid-template-rows:subgrid}
+.req{align-self:end;position:relative;display:grid;gap:8px;padding-bottom:26px}
+.req::after{content:"";position:absolute;left:6px;bottom:-12px;width:2px;height:30px;background:var(--accent)}
+.req p{font-size:17px;line-height:1.4}
+.req .tk,.enf .tk{justify-self:start}
+.lbl{font:500 11.5px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.mark{position:relative;display:flex;align-items:center;padding-block:10px}
+.mark::before{content:"";position:absolute;left:0;right:-22px;top:50%;height:2px;margin-top:-1px;background:var(--ink);transform-origin:left}
+.lc:last-child .mark::before{right:0}
+.is-active .mark::before{animation:grow .5s var(--ease) both;animation-delay:calc(var(--d,0) * 80ms + 150ms)}
+.dot{position:relative;width:14px;height:14px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--sheet)}
+.mark h3{position:relative;padding:0 10px 0 12px;background:var(--sheet);font:600 23px/1 var(--f-display)}
+.enf{align-self:start;display:grid;gap:8px;margin-top:12px;padding:14px 16px;border-radius:4px;background:var(--flag-soft)}
+.enf .lbl{color:var(--flag)}
+.enf p{font-size:16px;line-height:1.4}
+
+/* 4 */
+.split{flex:1;min-height:0;display:grid;grid-template-columns:1.25fr 1fr;gap:52px}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.pat{display:grid;align-content:start;gap:5px;padding:12px 14px;border:1px solid var(--rule);border-radius:4px}
+.pat h3{font-size:17px}
+.pat p{font-size:14.5px;line-height:1.35;color:var(--ink-2)}
+.tag{justify-self:start;font:500 11px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;padding:4px 6px;border-radius:3px;color:var(--sheet)}
+.pat.you{border-color:var(--accent);background:var(--accent-soft)}
+.pat.you .tag{background:var(--accent)}
+.pat.law{border-color:var(--ink)}
+.pat.law .tag{background:var(--ink)}
+.vol{display:grid;align-content:start;gap:6px;min-width:0}
+.sub{font-size:16px;line-height:1.4;color:var(--ink-2)}
+.chart{position:relative;display:grid;gap:16px;margin-top:40px}
+.brow{display:grid;gap:6px}
+.bname{padding-left:28px;font-size:16px;line-height:1.3}
+.btrack{position:relative;height:30px;display:flex;align-items:center}
+.bar{flex:none;height:100%;width:calc(var(--v) / 10000 * 100%);min-width:3px;border-radius:2px;background:var(--accent)}
+.bar.over{display:flex;align-items:center;justify-content:flex-end;padding-right:12px;background:var(--flag);color:var(--sheet);font:600 15px/1 var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bval{position:absolute;left:28px;font:500 14px/1.2 var(--f-mono);color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.cap{position:absolute;z-index:1;top:-34px;bottom:-6px;left:calc(250 / 10000 * 100%);border-left:2px dashed var(--ink)}
+.cap > span{position:absolute;top:0;left:10px;white-space:nowrap;font:600 13px/1.2 var(--f-mono);color:var(--ink)}
+.x38{display:flex;align-items:center;gap:16px;margin-top:20px}
+.x38 .big{font:700 66px/1 var(--f-display);color:var(--flag);font-variant-numeric:tabular-nums}
+.x38 p{font-size:18px;line-height:1.35;max-width:26ch}
+.note{margin-top:10px;font-size:15px;line-height:1.45;color:var(--ink-2)}
+
+/* 5 */
+.s5top{display:grid;grid-template-columns:1fr 1.1fr;gap:56px}
+.vrows{display:grid;margin-top:8px}
+.vrow{display:grid;grid-template-columns:190px 1fr;gap:3px 20px;padding-block:12px;border-bottom:1px solid var(--rule)}
+.vrow h3{grid-row:1/3;font-size:17px}
+.vrow .names{font:600 15px/1.3 var(--f-mono)}
+.vrow p{font-size:15.5px;line-height:1.35;color:var(--ink-2)}
+.cchart{position:relative;display:grid;gap:11px;margin-top:12px}
+.crow{display:grid;gap:5px}
+.cname{font-size:15.5px;line-height:1.3}
+.ctrack{position:relative;height:22px}
+.ctrack::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--rule)}
+.cbar{position:absolute;top:0;bottom:0;left:calc(var(--lo) / 550 * 100%);width:calc((var(--hi) - var(--lo)) / 550 * 100%);border-radius:2px;background:var(--est)}
+.cdot{position:absolute;top:50%;left:calc(var(--x) / 550 * 100%);width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--est)}
+.cval{position:absolute;top:50%;margin-top:-8px;left:calc(var(--hi) / 550 * 100% + 10px);font:500 13.5px/16px var(--f-mono);color:var(--ink-2);white-space:nowrap}
+.cval.l{left:auto;right:calc(100% - var(--x) / 550 * 100% + 18px)}
+.cinsight{margin-top:6px;font:600 19px/1.35 var(--f-display)}
+.frow{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-top:10px}
+.fr{display:grid;align-content:start;gap:6px;padding:13px 14px;border:1px solid var(--rule);border-radius:4px}
+.fr h3{font-size:16.5px}
+.fr p{font-size:14.5px;line-height:1.35;color:var(--ink-2)}
+
+/* 6 */
+.qmeta{display:flex;align-items:center;gap:14px;font:500 15px/1 var(--f-mono);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.qmeta button{padding:8px 12px;border:1px solid var(--rule);border-radius:4px;background:var(--sheet);color:var(--ink-2);cursor:pointer;font:500 13px/1 var(--f-mono)}
+.qcols{flex:1;min-height:0;display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:28px}
+.qcol ul{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.q{width:100%;display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:start;padding:11px 12px;text-align:left;
+  border:1px solid var(--rule);border-radius:4px;background:var(--sheet);cursor:pointer;transition:background .2s,border-color .2s}
+.q:hover{border-color:var(--ink-2)}
+.box{width:20px;height:20px;margin-top:2px;display:grid;place-items:center;border:2px solid var(--ink-2);border-radius:3px;font:700 13px/1 var(--f-body);color:transparent}
+.qt{font-size:16.5px;line-height:1.35}
+.own{padding-top:4px;font:500 11.5px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.q[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.q[aria-pressed="true"] .box{border-color:var(--accent);background:var(--accent);color:var(--sheet)}
+.q[aria-pressed="true"] .qt{color:var(--ink-2)}
+
+/* 7 */
+.s7b{display:grid;grid-template-columns:1.2fr 1fr;gap:56px}
+.heard{display:grid;align-content:start;gap:4px}
+.hl{display:grid;grid-template-columns:34px 1fr;align-items:baseline;gap:12px;padding-block:16px;border-bottom:1px solid var(--rule)}
+.hl .n{font:600 22px/1 var(--f-display);color:var(--accent)}
+.ed{min-height:30px;font-size:21px;line-height:1.4;border-radius:3px}
+.ed:empty::before{content:attr(data-ph);color:var(--ink-2)}
+.helps ul{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:11px}
+.helps li{display:grid;grid-template-columns:16px 1fr;gap:12px;font-size:18px;line-height:1.4}
+.helps li::before{content:"";width:10px;height:10px;margin-top:8px;border:2px solid var(--accent);border-radius:2px}
+.tl{position:relative;height:148px;margin-top:auto}
+.tl-axis{position:absolute;left:0;right:0;top:40px;height:2px;background:var(--ink)}
+.tl-day{position:absolute;top:8px;transform:translateX(-50%);font:500 12px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
+.tl-day:first-child{transform:none}
+.tl-day.end{transform:translateX(-100%)}
+.tl-pt{position:absolute;top:33px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--sheet)}
+.tl-range{position:absolute;top:35px;height:12px;border-radius:6px;background:var(--accent)}
+.tl-txt{position:absolute;top:64px;width:320px;font-size:16.5px;line-height:1.35}
+.tl-txt b{display:block;margin-bottom:4px;font:600 13px/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.thanks{font:600 34px/1.2 var(--f-display)}
+
+.rotate{position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom,0px));display:none;text-align:center;font-size:14px;color:var(--ink-2)}
+@media (max-width:600px) and (orientation:portrait){.rotate{display:block}}
+</style>
+
+<main class="stage" id="stage" aria-roledescription="slide deck">
+  <div class="rail">
+    <span class="brand">Transaction alert screening</span>
+    <div class="phases">
+      <button class="ph" type="button"><span>Listen</span><span class="track"><span class="fill"></span></span></button>
+      <button class="ph" type="button"><span>Share</span><span class="track"><span class="fill"></span></span></button>
+      <button class="ph" type="button"><span>Ask</span><span class="track"><span class="fill"></span></span></button>
+      <button class="ph" type="button"><span>Agree</span><span class="track"><span class="fill"></span></span></button>
+    </div>
+    <div class="pager">
+      <button id="prev" type="button" aria-label="Previous slide">‹</button>
+      <span id="counter">1 / 7</span>
+      <button id="next" type="button" aria-label="Next slide">›</button>
+    </div>
+  </div>
+
+  <div class="deck">
+
+  <!-- 1 -->
+  <section class="slide s1 is-active" data-phase="0" data-title="Why we're here">
+    <p class="eyebrow rv">Discovery session · Thursday 5 November 2026</p>
+    <h1 class="hook rv" style="--d:1">If an examiner asked tomorrow for every alert your team reviewed in July, what was decided and why, how long would it take to answer?</h1>
+    <p class="lede rv" style="--d:3">Today is mostly about listening. We'll share early domain research, not a solution. Nothing is decided yet.</p>
+    <div class="agenda rv" style="--d:4">
+      <div class="axis"><span style="left:0">0</span><span style="left:33.333%">15</span><span style="left:66.667%">30</span><span style="left:100%">45 min</span></div>
+      <div class="segs">
+        <div class="seg" style="--m:20"><div class="seg-bar grow" style="--d:5">Listen</div><p><b>20 min</b>Your process, in your words</p></div>
+        <div class="seg" style="--m:14"><div class="seg-bar grow" style="--d:6">Share</div><p><b>14 min</b>Early research to react to</p></div>
+        <div class="seg" style="--m:8"><div class="seg-bar grow" style="--d:7">Ask</div><p><b>8 min</b>Questions only you can answer</p></div>
+        <div class="seg" style="--m:3"><div class="seg-bar grow" style="--d:8">Agree</div><p><b>3 min</b>Next steps</p></div>
+      </div>
+    </div>
+    <div class="team rv" style="--d:9">
+      <p class="col-h">Our team</p>
+      <div class="people">
+        <span><b>Vedant</b>Lead · regulation and audit</span>
+        <span><b>Vedanshu</b>Detection patterns</span>
+        <span><b>Abdul</b>Data</span>
+        <span><b>Natalie</b>Analyst workflow and market</span>
+      </div>
+      <p class="sub">With Anurag Gupta (Celsior Tech) and your sales lead</p>
+    </div>
+    <footer class="sf"><span>Prepared for a first requirements conversation</span><span>← → move · P speaker notes · F full screen</span></footer>
+    <aside class="notes" hidden data-lead="Vedant" data-time="3 min">
+      <ul>
+        <li>Thank them. Introduce the team in one line each.</li>
+        <li>Read the hook question aloud. Don't answer it; let it sit.</li>
+        <li>Set expectations: mostly listening, early research only, nothing decided.</li>
+        <li>Confirm the 45 minutes, and that it's fine for us to take notes.</li>
+      </ul>
+      <p class="tr">Transition: "Let's start with how we think your process works today. Please pull it apart."</p>
+    </aside>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide" data-phase="0" data-title="How we understand your process today">
+    <header class="sh">
+      <div><p class="eyebrow rv">Listen · our picture from the brief</p><h2 class="rv" style="--d:1">How we understand your process today</h2></div>
+      <p class="sh-note rv" style="--d:2">Please correct it.</p>
+    </header>
+    <div class="flow">
+      <div class="node rv" style="--d:3"><span class="k">Data</span><h3>Core export</h3><p>A nightly CSV from the core banking system</p></div>
+      <svg class="conn" viewBox="0 0 60 24" aria-hidden="true"><path class="draw" style="--d:4" pathLength="1" d="M4 12H54"/><path class="rv" style="--d:5" d="M48 6l7 6-7 6"/></svg>
+      <div class="node rv" style="--d:5"><span class="k">Review</span><h3>Filter by eye</h3><p>Analysts scan the file in a spreadsheet</p></div>
+      <svg class="conn" viewBox="0 0 60 24" aria-hidden="true"><path class="draw" style="--d:6" pathLength="1" d="M4 12H54"/><path class="rv" style="--d:7" d="M48 6l7 6-7 6"/></svg>
+      <div class="node rv" style="--d:7"><span class="k">After a flag</span><h3>Decide</h3><p>The reasoning lives in someone's head or inbox</p></div>
+      <svg class="conn gap" viewBox="0 0 60 24" aria-hidden="true"><g class="pulse"><path class="rv" style="--d:8" d="M4 12H54" stroke-dasharray="5 6"/><path class="rv" style="--d:9" d="M48 6l7 6-7 6"/></g></svg>
+      <div class="node rv" style="--d:9"><span class="k">Audit</span><h3>Auditor asks</h3><p>"Show me what you reviewed, and why"</p></div>
+      <svg class="conn" viewBox="0 0 60 24" aria-hidden="true"><path class="draw" style="--d:10" pathLength="1" d="M4 12H54"/><path class="rv" style="--d:11" d="M48 6l7 6-7 6"/></svg>
+      <div class="node flag rv" style="--d:11"><span class="k">Audit</span><h3>Rebuild by hand</h3><p>The answer is pieced together from memory and files</p></div>
+      <div class="pains rv" style="--d:6"><span class="chip">Structuring</span><span class="chip">Dormant reactivation</span></div>
+      <p class="gap-note rv" style="--d:10">No record of what was flagged, why, or when</p>
+    </div>
+    <div class="prompts">
+      <h3 class="rv" style="--d:12">Walk us through it</h3>
+      <div class="prompt-row">
+        <div class="prompt rv" style="--d:13"><span class="k">Data</span><p>Where does the data come from, and how often?</p></div>
+        <div class="prompt rv" style="--d:14"><span class="k">Review</span><p>Who looks at it, and how long does a review take?</p></div>
+        <div class="prompt rv" style="--d:15"><span class="k">After a flag</span><p>What happens once something looks wrong?</p></div>
+        <div class="prompt rv" style="--d:16"><span class="k">Audit</span><p>What does the auditor ask for, and what do they get?</p></div>
+      </div>
+    </div>
+    <footer class="sf"><span>Built from the project brief. Nothing on this slide is confirmed yet.</span><span>We'll tick off our questions as you answer them.</span></footer>
+    <aside class="notes" hidden data-lead="Vedant facilitates, Anurag talks" data-time="17 min">
+      <ul>
+        <li>Walk the five boxes in under a minute, then stop talking.</li>
+        <li>Ask the four prompts left to right and follow wherever Anurag goes.</li>
+        <li>Probe for numbers: rows per day, alerts per month, minutes per review, where notes live, who signs off.</li>
+        <li>Note-taker: tick slide 6 questions as they get answered, and capture exact thresholds and definitions in Anurag's words.</li>
+        <li>Don't defend the picture. Redraw it in the notes.</li>
+      </ul>
+      <p class="tr">Transition: "That's really helpful. Here's what the rules and recent exams say, so we can see where your process sits."</p>
+    </aside>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide" data-phase="1" data-title="What regulators expect, and where banks stumbled">
+    <header class="sh">
+      <div><p class="eyebrow rv">Share · regulation and enforcement</p><h2 class="rv" style="--d:1">What regulators expect, and where banks stumbled</h2></div>
+      <span class="ribbon rv" style="--d:2">Initial finding · to validate with you</span>
+    </header>
+    <div class="life">
+      <div class="lc">
+        <div class="req drop" style="--d:3"><span class="lbl">Requirement</span><p>Cash over $10,000 per person per business day, all accounts and branches combined, needs a CTR.</p><span class="tk v">✓ 31 CFR 1010.311, .313</span></div>
+        <div class="mark" style="--d:2"><span class="dot pop" style="--d:2"></span><h3>Detect</h3></div>
+        <div class="enf rv" style="--d:4"><span class="lbl">Where it went wrong</span><p><b>Shinhan Bank America.</b> 468 alerts missed after a system migration with no parallel run.</p><span class="tk v">✓ FinCEN</span></div>
+      </div>
+      <div class="lc">
+        <div class="req drop" style="--d:5"><span class="lbl">Requirement</span><p>A deposit near $10,000 is not suspicious on its own. Look for a pattern that suggests intent.</p><span class="tk v">✓ Interagency SAR FAQ, Oct 2025</span></div>
+        <div class="mark" style="--d:4"><span class="dot pop" style="--d:4"></span><h3>Triage</h3></div>
+        <div class="enf rv" style="--d:6"><span class="lbl">Where it went wrong</span><p><b>USAA.</b> 90,000 alerts went unreviewed after a new system launched without a pilot.</p><span class="tk v">✓ FinCEN</span></div>
+      </div>
+      <div class="lc">
+        <div class="req drop" style="--d:7"><span class="lbl">Requirement</span><p>Record why you chose not to file. A short, concise statement is enough.</p><span class="tk v">✓ SAR FAQ, Oct 2025</span></div>
+        <div class="mark" style="--d:6"><span class="dot pop" style="--d:6"></span><h3>Decide</h3></div>
+        <div class="enf rv" style="--d:8"><span class="lbl">Where it went wrong</span><p><b>Blue Ridge Bank, about $3B.</b> No written standards for closing alerts. Decisions not to file went undocumented.</p><span class="tk v">✓ OCC 2024</span></div>
+      </div>
+      <div class="lc">
+        <div class="req drop" style="--d:9"><span class="lbl">Requirement</span><p>File a SAR within 30 days of initial detection, or 60 if no suspect is known. Keep it confidential.</p><span class="tk v">✓ 31 CFR 1020.320</span></div>
+        <div class="mark" style="--d:8"><span class="dot pop" style="--d:8"></span><h3>File</h3></div>
+        <div class="enf rv" style="--d:10"><span class="lbl">Where it went wrong</span><p><b>Bank of America.</b> A backlog of about 200,000 cases, and thresholds judged not appropriate.</p><span class="tk v">✓ OCC</span></div>
+      </div>
+      <div class="lc">
+        <div class="req drop" style="--d:11"><span class="lbl">Requirement</span><p>Keep records for 5 years, and tell the board about filings.</p><span class="tk v">✓ 31 CFR 1010.430 · 12 CFR 21.11</span></div>
+        <div class="mark" style="--d:10"><span class="dot pop" style="--d:10"></span><h3>Retain and report</h3></div>
+        <div class="enf rv" style="--d:12"><span class="lbl">Where it went wrong</span><p><b>Blue Ridge Bank.</b> The board had no view of the alert backlog.</p><span class="tk v">✓ OCC 2024</span></div>
+      </div>
+    </div>
+    <div class="bottom">
+      <p class="take rv" style="--d:13">Most of these penalties trace back to volume and missing records, not to a pattern nobody spotted.</p>
+      <p class="ask rv" style="--d:14"><b>Ask</b>Which of these does your examiner ask about most?</p>
+    </div>
+    <footer class="sf">
+      <span>Sources: 31 CFR 1010.311/.313/.430, 1020.320; 12 CFR 21.11; interagency SAR FAQ (Oct 2025); OCC consent orders; FinCEN enforcement actions</span>
+      <span class="legend"><span class="tk v">✓</span>verified in source <span class="tk m">Σ</span>measured by us <span class="tk e">≈</span>estimate <span class="tk a">†</span>industry-reported</span>
+    </footer>
+    <aside class="notes" hidden data-lead="Vedant" data-time="5 min">
+      <ul>
+        <li>Read left to right: each stage has one rule above the line and one bank that got it wrong below.</li>
+        <li>Blue Ridge is about their size, and its findings are the documentation gaps Anurag just described.</li>
+        <li>The SAR clock starts at "initial detection". Ask when they consider detection to start.</li>
+        <li>Land the takeaway: volume and records, not missed detection.</li>
+      </ul>
+      <p class="tr">Transition: "Next, what these patterns look like in data, and why volume is the real risk."</p>
+    </aside>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide" data-phase="1" data-title="Patterns and volume: what the data tells us">
+    <header class="sh">
+      <div><p class="eyebrow rv">Share · detection patterns and alert volume</p><h2 class="rv" style="--d:1">Patterns and volume: what the data tells us</h2></div>
+      <span class="ribbon rv" style="--d:2">Initial finding · to validate with you</span>
+    </header>
+    <div class="split">
+      <div>
+        <p class="col-h rv" style="--d:2">Patterns banks commonly screen for<span>Which matter to you?</span></p>
+        <div class="pgrid">
+          <div class="pat law rv" style="--d:3"><span class="tag">Required by law</span><h3>CTR threshold</h3><p>Cash over $10,000 in one business day, all accounts combined</p></div>
+          <div class="pat you rv" style="--d:3"><span class="tag">You named this</span><h3>Multi-day structuring</h3><p>Repeated cash deposits just under $10,000 across days</p></div>
+          <div class="pat you rv" style="--d:3"><span class="tag">You named this</span><h3>Same-day, cross-branch</h3><p>Several near-$10,000 deposits at different branches in one day</p></div>
+          <div class="pat you rv" style="--d:4"><span class="tag">You named this</span><h3>Dormant reactivation</h3><p>An idle account suddenly moves money</p></div>
+          <div class="pat rv" style="--d:4"><h3>Rapid pass-through</h3><p>Money comes in and leaves again within days</p></div>
+          <div class="pat rv" style="--d:4"><h3>High-risk jurisdiction</h3><p>Transfers to or from FATF-listed countries</p></div>
+          <div class="pat rv" style="--d:5"><h3>New-account burst</h3><p>A young account with many senders, emptied fast</p></div>
+          <div class="pat rv" style="--d:5"><h3>ATM anomaly</h3><p>Many withdrawals in a day, or in several states</p></div>
+          <div class="pat rv" style="--d:5"><h3>Wire to new beneficiary</h3><p>A first large wire to someone never paid before</p></div>
+          <div class="pat rv" style="--d:6"><h3>Round-dollar pattern</h3><p>Repeated transfers in exact thousands</p></div>
+          <div class="pat rv" style="--d:6"><h3>P2P anomaly</h3><p>Zelle-style payments far above normal</p></div>
+          <div class="pat rv" style="--d:6"><h3>Transfer splitting</h3><p>Many senders, one receiver, each under $10,000</p></div>
+        </div>
+      </div>
+      <div class="vol">
+        <p class="col-h rv" style="--d:3">Alerts per month at a 100k-account bank</p>
+        <p class="sub rv" style="--d:3">Simple checks we ran on 9.5M public synthetic transactions</p>
+        <div class="chart rv" style="--d:4">
+          <div class="cap"><span>Two analysts ≈ 250 / month <span class="tk a">†</span></span></div>
+          <div class="brow"><span class="bname">Repeat cash deposits under $10k, over several days</span>
+            <div class="btrack"><div class="bar grow" style="--v:1.5;--d:6"></div><span class="bval">~1.5 / month · ~90% precision <span class="tk m">Σ</span></span></div></div>
+          <div class="brow"><span class="bname">Idle 180+ days, then $5k+ within a week</span>
+            <div class="btrack"><div class="bar grow" style="--v:42;--d:7"></div><span class="bval">~42 / month <span class="tk m">Σ</span></span></div></div>
+          <div class="brow"><span class="bname">Money in and out within 72 hours, untuned</span>
+            <div class="btrack"><div class="bar over grow" style="--v:9600;--d:8">~<span data-count="9600" data-wait="790">9,600</span>&nbsp;/ month · 0.4% precision</div></div></div>
+          <div class="axis below"><span style="left:0">0</span><span style="left:25%">2,500</span><span style="left:50%">5,000</span><span style="left:75%">7,500</span><span style="left:100%">10,000</span></div>
+        </div>
+        <div class="x38 rv" style="--d:10"><span class="big"><span data-count="38" data-wait="950">38</span>×</span><p>what two analysts can work, from one untuned check</p></div>
+        <p class="note rv" style="--d:11">Block's alerts rose from 18,000 to 169,000 after new tooling, without new staff. <span class="tk v">✓ NYDFS 2025</span></p>
+      </div>
+    </div>
+    <div class="bottom">
+      <p class="take rv" style="--d:12">Thresholds decide whether a small team drowns. We'd rather start from the ones your analysts use today.</p>
+      <p class="ask rv" style="--d:13"><b>Ask</b>Which of these do you actually see? Which would you never want to miss?</p>
+    </div>
+    <footer class="sf">
+      <span>Data: SAML-D synthetic transactions, Oct 2022 – Aug 2023, UK-centric, amounts read as USD, scaled to 100k accounts. Patterns, not your numbers.</span>
+      <span class="legend"><span class="tk v">✓</span>verified in source <span class="tk m">Σ</span>measured by us <span class="tk e">≈</span>estimate <span class="tk a">†</span>industry-reported</span>
+    </footer>
+    <aside class="notes" hidden data-lead="Vedanshu, then Abdul" data-time="5 min">
+      <ul>
+        <li>Vedanshu: these are the patterns the industry watches. The three green ones are what Anurag's team already looks for. Ask him to rank them or cross some out.</li>
+        <li>Abdul: on public synthetic data we tried simple versions of three checks. Two fit easily inside a two-analyst team. One untuned check would bury them 38 times over.</li>
+        <li>Point: the threshold is the whole game, so we want to start from theirs.</li>
+        <li>Say clearly: synthetic data, so these are patterns, not their numbers.</li>
+      </ul>
+      <p class="tr">Transition: "Natalie will cover what the market looks like and what usually slows these projects down."</p>
+    </aside>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide" data-phase="1" data-title="Market and adoption realities">
+    <header class="sh">
+      <div><p class="eyebrow rv">Share · market and adoption</p><h2 class="rv" style="--d:1">Market and adoption realities</h2></div>
+      <span class="ribbon rv" style="--d:2">Initial finding · to validate with you</span>
+    </header>
+    <div class="s5top">
+      <div>
+        <p class="col-h rv" style="--d:2">Who banks your size buy from</p>
+        <div class="vrows">
+          <div class="vrow rv" style="--d:3"><h3>Community-bank leaders</h3><p class="names">Verafin · Abrigo</p><p>Used by most US banks under $10B. Prices are not published.</p></div>
+          <div class="vrow rv" style="--d:4"><h3>Enterprise suites</h3><p class="names">NICE Actimize · Oracle · SAS</p><p>Built for large banks. Heavy to run at $1–5B.</p></div>
+          <div class="vrow rv" style="--d:5"><h3>Fintech-native</h3><p class="names">Unit21 · Hummingbird · Hawk · Flagright</p><p>Modern tools, with few community-bank references so far.</p></div>
+        </div>
+      </div>
+      <div>
+        <p class="col-h rv" style="--d:3">What it typically costs a $1–5B bank<span>All figures are estimates</span></p>
+        <div class="cchart rv" style="--d:4">
+          <div class="crow"><span class="cname">Software licence, per year</span><div class="ctrack"><div class="cbar grow" style="--lo:75;--hi:200;--d:6"></div><span class="cval" style="--hi:200">$75–200k <span class="tk e">≈</span></span></div></div>
+          <div class="crow"><span class="cname">Implementation, one-off</span><div class="ctrack"><div class="cbar grow" style="--lo:25;--hi:75;--d:7"></div><span class="cval" style="--hi:75">$25–75k <span class="tk e">≈</span></span></div></div>
+          <div class="crow"><span class="cname">Independent validation, every 1–2 years</span><div class="ctrack"><div class="cbar grow" style="--lo:15;--hi:40;--d:8"></div><span class="cval" style="--hi:40">$15–40k <span class="tk e">≈</span></span></div></div>
+          <div class="crow"><span class="cname">BSA team of 4 analysts and 1 officer, per year</span><div class="ctrack"><div class="cdot pop" style="--x:506;--d:9"></div><span class="cval l" style="--x:506">≈ $506k loaded <span class="tk e">≈</span></span></div></div>
+          <div class="axis below"><span style="left:0">$0</span><span style="left:18.18%">$100k</span><span style="left:36.36%">$200k</span><span style="left:54.55%">$300k</span><span style="left:72.73%">$400k</span><span style="left:90.91%">$500k</span></div>
+        </div>
+        <p class="cinsight rv" style="--d:10">People cost more than software. The team is the largest line.</p>
+      </div>
+    </div>
+    <div>
+      <p class="col-h rv" style="--d:10">What usually slows these projects down</p>
+      <div class="frow">
+        <div class="fr rv" style="--d:11"><h3>Getting the data</h3><p>Nightly batch files, and some cores charge per dataset.</p></div>
+        <div class="fr rv" style="--d:11"><h3>Transaction codes</h3><p>Each core codes cash, wire and ACH its own way.</p></div>
+        <div class="fr rv" style="--d:12"><h3>Customer vs account</h3><p>Files keyed by account hide structuring across one customer's accounts.</p></div>
+        <div class="fr rv" style="--d:12"><h3>Vendor review</h3><p>Third-party risk review and a SOC 2 report. <span class="tk v">✓ OCC 2023-17</span></p></div>
+        <div class="fr rv" style="--d:13"><h3>Switching over</h3><p>Examiners expect old and new to run side by side first.</p></div>
+        <div class="fr rv" style="--d:13"><h3>Explainability</h3><p>95% of firms say alerts must be explainable. <span class="tk a">†</span></p></div>
+      </div>
+    </div>
+    <div class="bottom">
+      <p class="take rv" style="--d:14">Regulators don't require a vendor. They require criteria that are reasonable, independently verified and periodically reviewed. <span class="tk v">✓ FFIEC manual</span></p>
+      <p class="ask rv" style="--d:15"><b>Ask</b>Which of these would bite here? And how would you measure value?</p>
+    </div>
+    <footer class="sf">
+      <span>Sources: Nasdaq–Verafin deal documents (2020); KC Fed core-provider study; OCC Bulletin 2023-17; FFIEC BSA/AML manual; salary surveys; Feedzai survey</span>
+      <span class="legend"><span class="tk v">✓</span>verified in source <span class="tk m">Σ</span>measured by us <span class="tk e">≈</span>estimate <span class="tk a">†</span>industry-reported</span>
+    </footer>
+    <aside class="notes" hidden data-lead="Natalie" data-time="4 min">
+      <ul>
+        <li>Vendor segments in one breath each. Make no recommendation.</li>
+        <li>Costs: every figure is an estimate because vendors don't publish prices. The team costs more than any licence.</li>
+        <li>Friction row: ask Anurag which of the six apply here, and which core they run.</li>
+        <li>Ask the sales lead how value gets measured: hours saved, a clean exam, no missed deadlines?</li>
+      </ul>
+      <p class="tr">Transition: "We have a few specific questions left, and you've already answered some of them."</p>
+    </aside>
+  </section>
+
+  <!-- 6 -->
+  <section class="slide" data-phase="2" data-title="What we need to learn from you">
+    <header class="sh">
+      <div><p class="eyebrow rv">Ask · questions only you can answer</p><h2 class="rv" style="--d:1">What we need to learn from you</h2></div>
+      <div class="qmeta rv" style="--d:2"><span id="qcount">0 of 17 covered</span><button id="qreset" type="button">Clear ticks</button></div>
+    </header>
+    <div class="qcols">
+      <div class="qcol rv" style="--d:3">
+        <p class="col-h">Compliance<span>for Anurag</span></p>
+        <ul>
+          <li><button class="q" type="button" data-q="c1" aria-pressed="false"><span class="box">✓</span><span class="qt">What dollar bands and look-backs do analysts use when filtering today?</span><span class="own">Vedanshu</span></button></li>
+          <li><button class="q" type="button" data-q="c2" aria-pressed="false"><span class="box">✓</span><span class="qt">Dormant since when: the last customer-initiated transaction, or any posting, including fees?</span><span class="own">Abdul</span></button></li>
+          <li><button class="q" type="button" data-q="c3" aria-pressed="false"><span class="box">✓</span><span class="qt">One deposit trips two checks: one alert or two? Does closing one close both?</span><span class="own">Vedanshu</span></button></li>
+          <li><button class="q" type="button" data-q="c4" aria-pressed="false"><span class="box">✓</span><span class="qt">Who may change a threshold, who approves it, and does the board see the backlog?</span><span class="own">Vedant</span></button></li>
+          <li><button class="q" type="button" data-q="c5" aria-pressed="false"><span class="box">✓</span><span class="qt">When an auditor arrives, what do they ask for first, and in what format?</span><span class="own">Vedant</span></button></li>
+          <li><button class="q" type="button" data-q="c6" aria-pressed="false"><span class="box">✓</span><span class="qt">Who is allowed to know that a SAR was recommended or filed?</span><span class="own">Natalie</span></button></li>
+          <li><button class="q" type="button" data-q="c7" aria-pressed="false"><span class="box">✓</span><span class="qt">CTR candidates: in the same queue as alerts, or a separate list checked against the core?</span><span class="own">Natalie</span></button></li>
+        </ul>
+      </div>
+      <div class="qcol rv" style="--d:4">
+        <p class="col-h">Technology<span>for Anurag</span></p>
+        <ul>
+          <li><button class="q" type="button" data-q="t1" aria-pressed="false"><span class="box">✓</span><span class="qt">Which core system do you export from, and how often?</span><span class="own">Abdul</span></button></li>
+          <li><button class="q" type="button" data-q="t2" aria-pressed="false"><span class="box">✓</span><span class="qt">Does the file carry a cash flag, branch, channel and customer ID, or only account numbers?</span><span class="own">Abdul</span></button></li>
+          <li><button class="q" type="button" data-q="t3" aria-pressed="false"><span class="box">✓</span><span class="qt">How do night-drop and weekend cash deposits post?</span><span class="own">Abdul</span></button></li>
+          <li><button class="q" type="button" data-q="t4" aria-pressed="false"><span class="box">✓</span><span class="qt">Where would a tool have to run, and which security review would it go through?</span><span class="own">Natalie</span></button></li>
+          <li><button class="q" type="button" data-q="t5" aria-pressed="false"><span class="box">✓</span><span class="qt">Could you share an anonymised sample, or just the column layout?</span><span class="own">Abdul</span></button></li>
+        </ul>
+      </div>
+      <div class="qcol rv" style="--d:5">
+        <p class="col-h">Business<span>for your sales lead</span></p>
+        <ul>
+          <li><button class="q" type="button" data-q="b1" aria-pressed="false"><span class="box">✓</span><span class="qt">What would make this a success six months from now?</span><span class="own">Vedant</span></button></li>
+          <li><button class="q" type="button" data-q="b2" aria-pressed="false"><span class="box">✓</span><span class="qt">Who owns the budget, how are decisions made, and is any vendor contract up for renewal?</span><span class="own">Natalie</span></button></li>
+          <li><button class="q" type="button" data-q="b3" aria-pressed="false"><span class="box">✓</span><span class="qt">Which customer groups create the most alerts, such as cash-heavy businesses?</span><span class="own">Natalie</span></button></li>
+          <li><button class="q" type="button" data-q="b4" aria-pressed="false"><span class="box">✓</span><span class="qt">What friction for good customers must we never cause?</span><span class="own">Natalie</span></button></li>
+          <li><button class="q" type="button" data-q="b5" aria-pressed="false"><span class="box">✓</span><span class="qt">How many alerts a month can two analysts realistically work?</span><span class="own">Vedant</span></button></li>
+        </ul>
+      </div>
+    </div>
+    <footer class="sf"><span>Questions already answered during the walkthrough are ticked as we go.</span><span>Each question has one owner on our side.</span></footer>
+    <aside class="notes" hidden data-lead="Question owners" data-time="8 min">
+      <ul>
+        <li>Skip anything ticked. Owners ask what's left, in column order.</li>
+        <li>If time is short, ask these first: dollar bands and look-backs (c1), the dormant definition (c2), the core and file fields (t1, t2), and success in six months (b1).</li>
+        <li>Note-taker: write thresholds and definitions down word for word.</li>
+      </ul>
+      <p class="tr">Transition: "Let me play back what we heard, so you can correct us."</p>
+    </aside>
+  </section>
+
+  <!-- 7 -->
+  <section class="slide" data-phase="3" data-title="Playback and next steps">
+    <header class="sh">
+      <div><p class="eyebrow rv">Agree · before we close</p><h2 class="rv" style="--d:1">Playback and next steps</h2></div>
+    </header>
+    <div class="s7b">
+      <div class="heard rv" style="--d:2">
+        <p class="col-h">What we heard<span>Our top three takeaways, for you to correct</span></p>
+        <div class="hl"><span class="n">1</span><div class="ed" contenteditable="plaintext-only" role="textbox" aria-label="Takeaway 1" data-k="1" data-ph="Type takeaway 1 during the call"></div></div>
+        <div class="hl"><span class="n">2</span><div class="ed" contenteditable="plaintext-only" role="textbox" aria-label="Takeaway 2" data-k="2" data-ph="Type takeaway 2"></div></div>
+        <div class="hl"><span class="n">3</span><div class="ed" contenteditable="plaintext-only" role="textbox" aria-label="Takeaway 3" data-k="3" data-ph="Type takeaway 3"></div></div>
+      </div>
+      <div class="helps rv" style="--d:3">
+        <p class="col-h">What would help us</p>
+        <ul>
+          <li>An anonymised sample export, or just its column layout</li>
+          <li>The dollar bands and look-backs your analysts use today</li>
+          <li>Themes from recent exam feedback, if you can share them</li>
+          <li>Who reviews, who approves, and who may see SAR status</li>
+          <li>A 20-minute technical follow-up with Anurag</li>
+        </ul>
+      </div>
+    </div>
+    <div class="tl rv" style="--d:4" aria-label="Timeline from 5 to 11 November">
+      <span class="tl-day" style="left:0">Thu 5</span><span class="tl-day" style="left:16.667%">Fri 6</span><span class="tl-day" style="left:33.333%">Sat 7</span><span class="tl-day" style="left:50%">Sun 8</span><span class="tl-day" style="left:66.667%">Mon 9</span><span class="tl-day" style="left:83.333%">Tue 10</span><span class="tl-day end" style="left:100%">Wed 11</span>
+      <div class="tl-axis grow" style="--d:5"></div>
+      <span class="tl-pt pop" style="left:8px;--d:7"></span>
+      <span class="tl-range grow" style="left:16.667%;width:33.333%;--d:9"></span>
+      <span class="tl-pt pop" style="left:calc(100% - 8px);--d:11"></span>
+      <p class="tl-txt rv" style="left:0;--d:8"><b>Today</b>A written summary of what we heard, within 24 hours</p>
+      <p class="tl-txt rv" style="left:33.333%;transform:translateX(-50%);text-align:center;--d:10"><b>6–8 Nov</b>We check our findings against your answers and send any follow-up questions by email</p>
+      <p class="tl-txt rv" style="right:0;text-align:right;--d:12"><b>Wed 11 Nov</b>A walkthrough of a working prototype shaped by today</p>
+    </div>
+    <div class="bottom">
+      <p class="thanks rv" style="--d:13">Thank you.</p>
+      <p class="ask rv" style="--d:14"><b>Ask</b>What did we miss?</p>
+    </div>
+    <footer class="sf"><span>Transaction alert screening · Vedant, Vedanshu, Abdul, Natalie</span><span>Discovery session · 5 November 2026</span></footer>
+    <aside class="notes" hidden data-lead="Vedant" data-time="3 min">
+      <ul>
+        <li>Play back the top three takeaways from the notes (type them in now if you like) and invite corrections.</li>
+        <li>Walk the timeline and commit to the written summary within 24 hours.</li>
+        <li>Ask for the five items and agree who sends what, by when.</li>
+        <li>Thank them and finish on time.</li>
+      </ul>
+      <p class="tr">Close: "What did we miss?"</p>
+    </aside>
+  </section>
+
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+</main>
+<p class="rotate">Turn your phone sideways for a larger view.</p>
+
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  const slides = [...document.querySelectorAll('.slide')];
+  console.assert(slides.length <= 7, 'The deck must stay at 7 slides or fewer');
+  const phaseNames = ['Listen', 'Share', 'Ask', 'Agree'];
+  const phaseBtns = [...document.querySelectorAll('.ph')];
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let cur = 0, slideStart = Date.now(), callStart = null, pw = null, timer = null;
+
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  function fit() {
+    const cs = getComputedStyle(document.body);
+    const w = innerWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    stage.style.setProperty('--s', Math.min(w / 1600, (innerHeight - 32) / 900));
+  }
+
+  function countUp(s) {
+    if (reduce) return;
+    s.querySelectorAll('[data-count]').forEach(el => {
+      const end = +el.dataset.count, fmt = n => Math.round(n).toLocaleString('en-US');
+      el.textContent = '0';
+      setTimeout(() => {
+        const t0 = performance.now();
+        const step = t => {
+          const p = Math.min(1, (t - t0) / 1100);
+          el.textContent = fmt(end * (1 - (1 - p) ** 3));
+          if (p < 1 && s.classList.contains('is-active')) requestAnimationFrame(step);
+          else el.textContent = fmt(end);
+        };
+        requestAnimationFrame(step);
+        setTimeout(() => { el.textContent = fmt(end); }, 1200); // rAF pauses in hidden tabs
+      }, +(el.dataset.wait || 0));
+    });
+  }
+
+  function go(n) {
+    cur = Math.max(0, Math.min(slides.length - 1, n));
+    const s = slides[cur], p = +s.dataset.phase;
+    slides.forEach((x, i) => x.classList.toggle('is-active', i === cur));
+    slideStart = Date.now();
+    phaseBtns.forEach((b, i) => {
+      const inPhase = slides.filter(x => +x.dataset.phase === i);
+      const done = i < p ? 1 : i > p ? 0 : (inPhase.indexOf(s) + 1) / inPhase.length;
+      b.querySelector('.fill').style.width = done * 100 + '%';
+      b.classList.toggle('is-current', i === p);
+      b.setAttribute('aria-current', i === p ? 'step' : 'false');
+    });
+    document.getElementById('counter').textContent = `${cur + 1} / ${slides.length}`;
+    countUp(s);
+    renderPresenter();
+  }
+
+  function onKey(e) {
+    const k = e.key;
+    if (e.target.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.target.closest?.('button') && (k === ' ' || k === 'Enter')) return;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') go(cur + 1);
+    else if (k === 'ArrowLeft' || k === 'PageUp') go(cur - 1);
+    else if (k === 'Home') go(0);
+    else if (k === 'End') go(slides.length - 1);
+    else if (/^[1-9]$/.test(k) && +k <= slides.length) go(+k - 1);
+    else if (k === 'f' || k === 'F') toggleFullscreen();
+    else if (k === 'p' || k === 'P') openPresenter();
+    else return;
+    e.preventDefault();
+  }
+
+  function toggleFullscreen() {
+    try {
+      const r = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+      r?.catch?.(() => toast('Full screen is not available here.'));
+    } catch { toast('Full screen is not available here.'); }
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 4000);
+  }
+
+  // Presenter view: a blank popup this page writes into, so it works from file:// with no server.
+  const PRESENTER = `<!doctype html><html><head><meta charset="utf-8"><title>Speaker notes</title><style>
+    body{margin:0;padding:24px 28px;background:#0F171D;color:#E6ECEF;font:16px/1.5 -apple-system,"IBM Plex Sans","Segoe UI",sans-serif}
+    header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font:500 13px ui-monospace,Menlo,monospace;color:#9FB0BB}
+    .clock{display:flex;gap:18px;align-items:center}.clock b{display:block;color:#E6ECEF;font-size:20px;font-variant-numeric:tabular-nums}
+    h1{margin:18px 0 4px;font:600 28px/1.2 Georgia,serif}#meta{margin:0 0 16px;color:#3DBFA3;font:500 14px ui-monospace,Menlo,monospace}
+    #body ul{margin:0 0 14px;padding-left:20px}#body li{margin-bottom:9px;font-size:18px}#body .tr{color:#DDB15A}
+    footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:20px;padding-top:14px;border-top:1px solid #26343F;color:#9FB0BB}
+    button{font:inherit;color:#E6ECEF;background:#1B2731;border:1px solid #33434F;border-radius:6px;padding:8px 14px;cursor:pointer}
+  </style></head><body>
+    <header><span id="pos"></span><div class="clock"><span>Call<b id="call">0:00</b></span><span>Left of 45<b id="left">45:00</b></span><span>This slide<b id="here">0:00</b></span><button id="reset" type="button">Restart clock</button></div></header>
+    <h1 id="ttl"></h1><p id="meta"></p><div id="body"></div>
+    <footer><span id="nxt"></span><span><button id="pprev" type="button">‹ Back</button> <button id="pnext" type="button">Next ›</button></span></footer>
+  </body></html>`;
+
+  function openPresenter() {
+    if (pw && !pw.closed) { pw.focus(); return; }
+    pw = window.open('', 'aml-presenter', 'width=760,height=720');
+    if (!pw) { toast('Your browser blocked the notes window. Allow pop-ups for this page, then press P again.'); return; }
+    callStart ??= Date.now();
+    const d = pw.document;
+    d.open(); d.write(PRESENTER); d.close();
+    d.addEventListener('keydown', onKey);
+    d.getElementById('pprev').onclick = () => go(cur - 1);
+    d.getElementById('pnext').onclick = () => go(cur + 1);
+    d.getElementById('reset').onclick = () => { callStart = Date.now(); slideStart = Date.now(); tick(); };
+    clearInterval(timer); timer = setInterval(tick, 1000);
+    renderPresenter(); tick();
+  }
+
+  function renderPresenter() {
+    if (!pw || pw.closed) return;
+    const d = pw.document, s = slides[cur], n = s.querySelector('.notes'), next = slides[cur + 1];
+    d.getElementById('pos').textContent = `Slide ${cur + 1} of ${slides.length} · ${phaseNames[s.dataset.phase]}`;
+    d.getElementById('ttl').textContent = s.dataset.title;
+    d.getElementById('meta').textContent = `Lead: ${n.dataset.lead} · Time box: ${n.dataset.time}`;
+    d.getElementById('body').innerHTML = n.innerHTML;
+    d.getElementById('nxt').textContent = next ? `Next: ${next.dataset.title}` : 'Last slide';
+  }
+
+  function tick() {
+    if (!pw || pw.closed) { clearInterval(timer); return; }
+    const f = ms => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+    const d = pw.document, now = Date.now();
+    d.getElementById('call').textContent = f(now - callStart);
+    d.getElementById('left').textContent = f(45 * 60000 - (now - callStart));
+    d.getElementById('here').textContent = f(now - slideStart);
+  }
+
+  // Slide 6 checklist and slide 7 takeaways are saved in this browser only.
+  const qs = [...document.querySelectorAll('.q')];
+  const ids = new Set(qs.map(b => b.dataset.q));
+  const ticked = new Set(store.get('aml-discovery-q', []).filter(id => ids.has(id)));
+  function paintQ() {
+    qs.forEach(b => b.setAttribute('aria-pressed', ticked.has(b.dataset.q)));
+    document.getElementById('qcount').textContent = `${ticked.size} of ${qs.length} covered`;
+  }
+  qs.forEach(b => b.addEventListener('click', () => {
+    ticked.has(b.dataset.q) ? ticked.delete(b.dataset.q) : ticked.add(b.dataset.q);
+    store.set('aml-discovery-q', [...ticked]); paintQ();
+  }));
+  document.getElementById('qreset').addEventListener('click', () => { ticked.clear(); store.set('aml-discovery-q', []); paintQ(); });
+  document.querySelectorAll('.ed').forEach(el => {
+    const key = 'aml-discovery-heard-' + el.dataset.k;
+    el.textContent = store.get(key, '');
+    el.addEventListener('input', () => {
+      if (!el.textContent.trim()) el.textContent = '';
+      store.set(key, el.textContent);
+    });
+  });
+
+  phaseBtns.forEach((b, i) => b.addEventListener('click', () => go(slides.findIndex(s => +s.dataset.phase === i))));
+  document.getElementById('prev').addEventListener('click', () => go(cur - 1));
+  document.getElementById('next').addEventListener('click', () => go(cur + 1));
+  document.addEventListener('keydown', onKey);
+  new ResizeObserver(fit).observe(document.documentElement);
+  fit(); paintQ(); go(0);
+})();
+</script>

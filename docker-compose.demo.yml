@@ -1,0 +1,8 @@
+# Demo overrides (TRA-14): preload the 100k-account subsample and seed the three demo roles.
+services:
+  app:
+    environment:
+      SEED_DEMO_USERS: "true"
+      SCREENER_DEMO_DAY: "2023-07-14"
+    volumes:
+      - ./data/parquet/demo:/data/parquet:ro

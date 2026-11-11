@@ -1,0 +1,129 @@
+# Curated regulator red flags that rules cite. Source wording is paraphrased; `verified` is true only
+# when a team member has read the primary page in a browser (FFIEC and FATF block scripted fetch).
+# Owners: add flags for your rules; never delete an id that a rule.yaml references (tests/test_contracts.py).
+- id: RF-001
+  category: structuring
+  source: FFIEC BSA/AML Manual, Appendix F (Potentially Suspicious Activity That May Indicate Money Laundering)
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Customer breaks a cash transaction into several smaller amounts, each at or below the $10,000 reporting threshold, on one or more days.
+  rule_ids: [r02, r03]
+  verified: false
+- id: RF-002
+  category: structuring
+  source: 31 CFR 1010.100(xx) definition of structuring
+  url: https://www.law.cornell.edu/cfr/text/31/1010.100
+  text: Conducting currency transactions in any amount, at one or more institutions, on one or more days, in a manner designed to evade the CTR requirement.
+  rule_ids: [r02, r03]
+  verified: true
+- id: RF-003
+  category: structuring
+  source: FFIEC Appendix F
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Customer uses multiple branches, tellers or channels on the same day to deposit cash that together approaches the reporting threshold.
+  rule_ids: [r03, r01]
+  verified: false
+- id: RF-004
+  category: ctr
+  source: 31 CFR 1010.311 and 1010.313 (CTR threshold and aggregation)
+  url: https://www.law.cornell.edu/cfr/text/31/1010.313
+  text: Cash in or cash out totalling more than $10,000 by or on behalf of one person in one business day across all accounts and branches must be reported.
+  rule_ids: [r01]
+  verified: true
+- id: RF-005
+  category: account_behaviour
+  source: FFIEC Appendix F
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: A dormant account suddenly experiences large deposits or withdrawals.
+  rule_ids: [r04]
+  verified: false
+- id: RF-006
+  category: funds_movement
+  source: FFIEC Appendix F; FATF layering typology
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Funds are deposited and then quickly withdrawn or transferred out with little or no business purpose.
+  rule_ids: [r05]
+  verified: false
+- id: RF-007
+  category: funds_movement
+  source: FinCEN TD Bank enforcement action (funnel accounts), Oct 2024
+  url: https://www.fincen.gov/news/news-releases/fincen-assesses-record-13-billion-penalty-against-td-bank
+  text: Many unrelated parties deposit into one account, which is then rapidly emptied to a third party (funnel account).
+  rule_ids: [r12, r07]
+  verified: true
+- id: RF-008
+  category: counterparty
+  source: FATF high-risk and other monitored jurisdictions
+  url: https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html
+  text: Transfers to or from jurisdictions subject to FATF calls for action or increased monitoring, without an apparent business reason.
+  rule_ids: [r06]
+  verified: false
+- id: RF-009
+  category: counterparty
+  source: FFIEC Appendix F (funds transfers)
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Wire transfers to or from unrelated third parties, or to a beneficiary the customer has never paid before, inconsistent with the customer's business.
+  rule_ids: [r09]
+  verified: false
+- id: RF-010
+  category: funds_movement
+  source: FFIEC Appendix F
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Repeated transfers in round-dollar amounts with no apparent commercial reason.
+  rule_ids: [r10]
+  verified: false
+- id: RF-011
+  category: rails
+  source: FinCEN TD Bank enforcement action (insufficient P2P monitoring)
+  url: https://www.fincen.gov/news/news-releases/fincen-assesses-record-13-billion-penalty-against-td-bank
+  text: Peer-to-peer payment volume or counterparty count far above the customer's profile or above what a small account can plausibly support.
+  rule_ids: [r11]
+  verified: true
+- id: RF-012
+  category: funds_movement
+  source: 31 CFR 1010.410 ($3,000 funds-transfer recordkeeping) and FFIEC Appendix F
+  url: https://www.law.cornell.edu/cfr/text/31/1010.410
+  text: Several transfers between the same originator and beneficiary, each below a threshold, that together exceed it within a short period.
+  rule_ids: [r12]
+  verified: true
+- id: RF-013
+  category: account_behaviour
+  source: FATF money-mule typology; FinCEN alerts on mule accounts
+  url: https://www.fincen.gov/resources/advisoriesbulletinsfact-sheets
+  text: A newly opened account receives funds from many unrelated senders and forwards most of them within hours or days.
+  rule_ids: [r07]
+  verified: false
+- id: RF-014
+  category: account_behaviour
+  source: FFIEC Appendix F (ATM activity)
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: ATM withdrawals in frequency, amount or geography inconsistent with the customer's history.
+  rule_ids: [r08]
+  verified: false
+- id: RF-015
+  category: general
+  source: Interagency SAR FAQs, 9 Oct 2025 (structuring)
+  url: https://www.davispolk.com/insights/client-update/fincen-and-banking-agencies-release-updated-sar-guidance
+  text: A transaction at or near $10,000 is not by itself sufficient to require a SAR; a pattern suggesting intent to evade is needed.
+  rule_ids: [r02, r03]
+  verified: true
+- id: RF-016
+  category: counterparty
+  source: FinCEN Section 311 special measures (primary money laundering concern)
+  url: https://www.fincen.gov/resources/statutes-and-regulations/311-and-9714-special-measures
+  text: Transactions involving institutions or jurisdictions designated as primary money laundering concerns.
+  rule_ids: [r06]
+  verified: false
+- id: RF-017
+  category: cash
+  source: FFIEC Appendix F (currency)
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: Cash deposits by a customer whose stated business does not generate cash, or cash volume far above what was expected at onboarding.
+  rule_ids: [r02]
+  verified: false
+- id: RF-018
+  category: counterparty
+  source: FFIEC Appendix F (funds transfers)
+  url: https://bsaaml.ffiec.gov/manual/Appendices/07
+  text: A sudden increase in international wire activity for a customer with no history of it.
+  rule_ids: [r06, r09]
+  verified: false
