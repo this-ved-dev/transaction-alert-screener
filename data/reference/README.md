@@ -12,6 +12,7 @@ Downloaded files are gitignored. Committed here: the hand-maintained tables.
 | `un/` | UN Security Council consolidated list | scsanctions.un.org | free |
 | `opensanctions/` | us_ofac_sdn, us_sanctions, us_fincen_special_measures, peps | data.opensanctions.org | CC BY-NC 4.0 (class use only) |
 | `iso20022/` | external code sets, BTC codification, camt.054.001.13 XSD | iso20022.org | free |
+| `iso20022/btc_codification.csv` (committed) | the 1,561 permitted BankTransactionCode triplets, from `BTC_Codification_21March2024.xlsx` (SHA-256 `7070c3bf…7c2b`) via `screener.btc.refresh()` | iso20022.org | ISO 20022 free use |
 | `branches_fdic_nj_raw.json` | NJ branches of $1–5B banks, 2025 | api.fdic.gov/banks/sod | US public |
 | `country_codes.csv` | ISO 3166 | github.com/datasets/country-codes | mixed open |
 

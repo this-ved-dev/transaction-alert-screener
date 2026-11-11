@@ -7,6 +7,7 @@ data/reference/opensanctions/*
 data/reference/iso20022/*
 !data/reference/**/.gitkeep
 !data/reference/**/README.md
+!data/reference/iso20022/btc_codification.csv
 kaggle.json
 *.parquet
 !data/fixtures/fixture.parquet

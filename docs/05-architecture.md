@@ -32,6 +32,56 @@
 | `agent_draft` | id, alert_id, model, prompt_hash, evidence_pack JSON, output, created_by, created_at |
 | `country_risk` | country, tier, source, effective_from, effective_to |
 
+## Canonical entry schema (day-0 contract, TRA-6)
+
+Source of truth: `screener/schema.py` (`ENTRY`, a pyarrow schema). One row per booked entry, stored as Parquet. The 32 columns implement the 26 rows of the D6 table; row 21 (risk tier, KYC status, PEP flag) lives on `customer`, never on the entry. `TxDtls` below is `Ntry/NtryDtls/TxDtls`; paths are relative to `Ntfctn` in camt.054.001.13. Req = `validate()` rejects the row when it is null.
+
+| # | Column | Type | Req | camt.054 origin | Note |
+|---|---|---|---|---|---|
+| 1 | `entry_id` | string | ✓ | `Ntry/NtryRef` or `Ntry/AcctSvcrRef` | |
+| 2 | `account_id` | string | ✓ | `Acct/Id/Othr/Id` | our customer's account |
+| 3 | `amount` | decimal(18,2) | ✓ | `Ntry/Amt` | always > 0; direction is `credit_debit` |
+| 4 | `currency` | string | ✓ | `Ntry/Amt/@Ccy` | ISO 4217 |
+| 5 | `credit_debit` | string | ✓ | `Ntry/CdtDbtInd` | `CRDT` / `DBIT` |
+| 6 | `is_reversal` | bool | ✓ | `Ntry/RvslInd` | |
+| 7 | `status` | string | ✓ | `Ntry/Sts/Cd` | `BOOK` / `PDNG` |
+| 8 | `booking_ts` | timestamp[us] | ✓ | `Ntry/BookgDt/DtTm` | bank local time without offset, so DuckDB gives the same answer on every host |
+| 9 | `value_date` | date | ✓ | `Ntry/ValDt/Dt` | |
+| 10 | `business_date` | date | ✓ | none; `TxDtls/RltdDts/Prtry{Tp=BUSD}` on export | weekend/holiday roll-forward; CTR aggregation key |
+| 11–13 | `btc_domain`, `btc_family`, `btc_subfamily` | string | ✓ | `Ntry/BkTxCd/Domn/Cd`, `…/Domn/Fmly/Cd`, `…/Domn/Fmly/SubFmlyCd` | must be in the ISO codification (`screener/btc.py`) |
+| 14 | `btc_proprietary` | string | | `Ntry/BkTxCd/Prtry/Cd` | `ZELLE`, ACH SEC code, BAI type code, ISO 8583 processing code |
+| 15 | `channel` | string | ✓ | `Ntry/TechInptChanl` | `TELLER` `BRANCH` `NIGHT_DROP` `ATM` `POS` `ONLINE` `MOBILE` `WIRE_ROOM` `SYSTEM` (bank-originated fees, interest) |
+| 16 | `instrument_refs` | struct{end_to_end_id, uetr, trace_no, cheque_no} | | `TxDtls/Refs/{EndToEndId, UETR, ClrSysRef, ChqNb}` | |
+| 17–18 | `debtor`, `creditor` | struct{name, cif_id, country} | | `TxDtls/RltdPties/Dbtr\|Cdtr/Pty/{Nm, Id/…/Othr/Id (SchmeNm/Cd=CUST), CtryOfRes}` | counterparty country for R06 |
+| 19–20 | `debtor_account`, `creditor_account` | string | | `TxDtls/RltdPties/DbtrAcct\|CdtrAcct/Id/Othr/Id` | |
+| 21–22 | `debtor_agent`, `creditor_agent` | struct{routing, bic, country} | | `TxDtls/RltdAgts/DbtrAgt\|CdtrAgt/FinInstnId/{ClrSysMmbId/MmbId (USABA), BICFI, PstlAdr/Ctry}` | |
+| 23 | `branch_id` | string | | `TxDtls/RltdAgts/…/BrnchId/Id` | CTR party type 34 |
+| 24 | `conductor` | struct{name, cif_id, country} | | nearest `TxDtls/RltdPties/UltmtDbtr\|UltmtCdtr` or `InitgPty` | person at the counter, may differ from the owner |
+| 25 | `cif_id` | string | ✓ | `Acct/Ownr/Id/…/Othr/Id` with `SchmeNm/Cd=CUST` | account owner; denormalised so rules group by customer without a join |
+| 26 | `purpose` | string | | `TxDtls/Purp/Cd` | |
+| 27 | `memo` | string | | `TxDtls/RmtInf/Ustrd`, `Ntry/AddtlNtryInf` | stored verbatim, rendered escaped, never parsed |
+| 28 | `cash_detail` | list<struct{denomination, count}> | | `TxDtls/CshDpst/{NoteDnmtn, NbOfNotes}` | |
+| 29 | `card_detail` | struct{masked_pan, mcc, terminal_id} | | `Ntry/CardTx` | |
+| 30 | `source_message` | string | ✓ | none; `SplmtryData` on export | `fixture`, `saml_d`, `tide`, `pacs.008`, `nacha`, `iso8583`, `x937`, `zelle`, `teller` |
+| 31 | `raw_ref` | string | | none; `SplmtryData` on export | pointer to the stored raw record |
+| 32 | `typology_label` | string | | none | hidden: rules and injectors never read it |
+
+**Validation and quarantine.** `schema.validate(table) -> (valid, rejected)` rejects a row when a required column is null, `amount <= 0`, the currency is not three capital letters, `credit_debit`/`status`/`channel` is outside its list, the BTC triplet is not in the codification, or `business_date` is before the booking date. The first failing check is the reason. The adapter writes each rejected item (`reason`, `raw_row` JSON) to `rejected_entry` with its `load_batch_id`, `source` and `created_at`; rules only ever see valid rows.
+
+**Rule SQL inputs.** The engine provides the view `entries` (validated canonical rows) and `customers` (`cif_id`, `risk_tier`, …), and renders `rule.sql` with Jinja (`StrictUndefined`) using `asof` (the business day, ISO string) and `params.<key>` (from `rule.yaml`, after tier multipliers). Jinja braces inside SQL comments are rendered too, so comments must not contain them.
+
+**Hit → alert contract.** `rule.sql` returns exactly these columns, in this order, with these DuckDB types (`schema.HIT_COLUMNS`, enforced by `tests/test_contracts.py` on the fixture Parquet):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `customer_id` | VARCHAR | the `cif_id` the hit is reported on |
+| `account_id` | VARCHAR | the account for account-keyed rules; `NULL::VARCHAR` otherwise |
+| `business_day` | DATE | the business day the hit belongs to |
+| `matched_txn_ids` | VARCHAR[] | `entry_id`s the analyst sees as evidence |
+| `computed_values` | JSON | the numbers the evidence panel and `explain.py` quote (totals, counts, thresholds) |
+
+The engine adds `run_id` and `rule_version_id` and upserts into `hit`, unique on (`rule_version_id`, `customer_id`, `business_day`), so the hourly incremental run never duplicates. Consolidation and scoring read only these columns plus `weight` and `mode` from `rule.yaml`: `shadow` hits are stored and counted but never create alerts; live hits for one customer and business day become one alert.
+
 ---
 
 # PART E — TECHNICAL ARCHITECTURE
@@ -77,12 +127,12 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 ```
 
 **Day-0 contracts** (written into `docs/05-architecture.md` and enforced by tests; these are what let four people work in parallel):
-1. Canonical Parquet schema (column names, types) and the committed fixture Parquet.
+1. Canonical Parquet schema (column names, types) and the committed fixture Parquet (§ Canonical entry schema above; `screener fixtures`).
 2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
 3. **Evidence-panel contract:** `rules/<id>_<slug>/evidence.html`, a Django template partial receiving `hit` (with `computed_values`) and `txns`; the alert page includes one per hit. Owners build UI for their rules without editing the alert page.
 4. **Injector contract:** `rules/<id>_<slug>/inject.py` exposing `inject(df, rng, n) -> (df, cases)`; the US layer calls each and writes `answer_key.json`.
 5. **Hit → alert contract:** consolidation and scoring read only the five hit columns plus `rule.yaml` weight.
-6. **Agent tool contract:** `rules/<id>_<slug>/explain.py` exposing `evidence(hit) -> list[EvidenceItem]`; the agent harness concatenates them.
+6. **Agent tool contract:** `rules/<id>_<slug>/explain.py` exposing `evidence(hit, entries) -> list[EvidenceItem]`; the agent harness concatenates them.
 
 ## E4. Interface decision record (ADR-001)
 Django + HTMX + Tailwind. Reasons: the client asked for an admin console for thresholds and rules without recoding, which Django admin plus `django-simple-history` provides in a day; roles, audit and forms are the product; one language and one build system for four people. Alternatives considered: FastAPI + HTMX (1–2 days more plumbing), FastAPI + React (two build systems), Streamlit (no real roles). Revisit only if someone volunteers to own a React front end end-to-end.

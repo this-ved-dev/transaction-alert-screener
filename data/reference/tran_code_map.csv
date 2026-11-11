@@ -4,6 +4,7 @@ source,source_code,direction,btc_domain,btc_family,btc_subfamily,btc_proprietary
 saml_d,Cash Deposit,CRDT,PMNT,CNTR,CDPT,,TELLER,true,depositor is the sender account
 saml_d,Cash Withdrawal,DBIT,PMNT,CNTR,CWDL,,TELLER,true,withdrawer is the receiver account; US layer relabels <=1000 as ATM p=0.7
 saml_d,Cash Withdrawal:ATM,DBIT,PMNT,CCRD,CWDL,,ATM,true,assigned by us_layer/channels.py
+saml_d,Cash Deposit:NIGHT_DROP,CRDT,PMNT,CNTR,CDPT,,NIGHT_DROP,true,night-drop share of deposits; assigned by us_layer/channels.py
 saml_d,ACH,CRDT|DBIT,PMNT,RCDT|ICDT,ATXN,PPD|CCD|WEB,ONLINE,false,SEC code seeded by the US layer
 saml_d,ACH:P2P,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT,ZELLE,MOBILE,false,synthetic P2P share; disclosed
 saml_d,Cross-border,CRDT|DBIT,PMNT,RCDT|ICDT,XBCT,,WIRE_ROOM,false,international wire
@@ -14,5 +15,7 @@ tide,DEPOSIT,CRDT,PMNT,CNTR,CDPT,,TELLER,true,read as cash-in to the receiving a
 tide,WITHDRAWAL,DBIT,PMNT,CNTR,CWDL,,TELLER,true,
 tide,TRANSFER,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT,,ONLINE,false,XBCT when counterparty country differs
 tide,PAYMENT,DBIT,PMNT,CCRD,POSD,,POS,false,
+fixture,FEE,DBIT,ACMT,MDOP,FEES,,SYSTEM,false,account fee; does not reset dormancy (R04 client v1)
+fixture,INTEREST,CRDT,ACMT,MCOP,INTR,,SYSTEM,false,interest credit; does not reset dormancy (R04 client v1)
 core_csv,TBD,CRDT|DBIT,PMNT,,,,,,fill from the bank's core export layout (docs/14-field-requirements.md); cash indicator derived from the code list if absent
 wire_feed,TBD,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT|XBCT,,WIRE_ROOM,false,fill from the bank's wire feed layout; XBCT when the counterparty bank country is not US
