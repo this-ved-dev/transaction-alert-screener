@@ -17,9 +17,9 @@ WORKDIR /app
 COPY --from=builder --chown=screener:screener /app /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 SCREENER_DATA_DIR=/data
 VOLUME ["/data"]
-USER screener
+USER 10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:8000/healthz || exit 1
+  CMD ["curl", "-fsS", "http://localhost:8000/healthz"]
 # The Django project is created by TRA-34; until then the image is used for `screener` CLI runs.
 CMD ["gunicorn", "--chdir", "app", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]
