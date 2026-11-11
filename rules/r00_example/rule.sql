@@ -9,6 +9,8 @@
 --   group_key (VARCHAR, never NULL: the value of rule.yaml key, e.g. cif_id, account_id, country),
 --   matched_txn_ids (LIST<VARCHAR>), computed_values (JSON)
 -- and at most one row per (customer_id, business_day, group_key): hits upsert on that key.
+-- Several variants, directions or conditions per key value: prefix group_key (a:CIF00001,
+-- CRDT:CIF00001) or merge them into one row; see docs/05-architecture.md, Hit to alert contract.
 SELECT
     e.cif_id                                   AS customer_id,
     NULL::VARCHAR                              AS account_id,

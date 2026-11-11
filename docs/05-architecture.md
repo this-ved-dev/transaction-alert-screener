@@ -81,7 +81,12 @@ Source of truth: `screener/schema.py` (`ENTRY`, a pyarrow schema). One row per b
 | `matched_txn_ids` | VARCHAR[] | `entry_id`s the analyst sees as evidence |
 | `computed_values` | JSON | the numbers the evidence panel and `explain.py` quote (totals, counts, thresholds) |
 
-A rule returns at most one row per (`customer_id`, `business_day`, `group_key`). The engine adds `run_id` and `rule_version_id` and upserts into `hit` on `schema.HIT_IDENTITY` = (`rule_version_id`, `customer_id`, `business_day`, `group_key`); later hourly runs update `matched_txn_ids` and `computed_values` in place and never duplicate. `group_key` is in the identity because one rule can fire for two accounts, countries or beneficiaries of the same customer on the same day (R05, R06, R09): without it, a row-by-row upsert overwrites one account's evidence with the other's, and a bulk upsert (Postgres `ON CONFLICT`) fails on the repeated key. Both guarantees are tested (`test_rule_sql_returns_the_hit_columns`, `test_two_accounts_of_one_customer_survive_repeated_hourly_upserts`).
+A rule returns at most one row per (`customer_id`, `business_day`, `group_key`). When one `rule.sql` can produce several rows for the same key value (two directions, two variants, several conditions), pick one of two patterns:
+
+- **Prefix** `group_key` to keep them as separate hits when each needs its own statistics: `CRDT:CIF00001` / `DBIT:CIF00001` for R01's directions, `a:CIF00001` / `b:CIF00001` for R02 v2's variants, `a:<sender>><receiver>` / `b:<receiver>` for R12.
+- **Merge** them into one row and list what fired in `computed_values` (for example `conditions: ["count", "multi_state"]`) when they are facets of one finding: R08's and R11's conditions.
+
+The engine adds `run_id` and `rule_version_id` and upserts into `hit` on `schema.HIT_IDENTITY` = (`rule_version_id`, `customer_id`, `business_day`, `group_key`); later hourly runs update `matched_txn_ids` and `computed_values` in place and never duplicate. `group_key` is in the identity because one rule can fire for two accounts, countries or beneficiaries of the same customer on the same day (R05, R06, R09): without it, a row-by-row upsert overwrites one account's evidence with the other's, and a bulk upsert (Postgres `ON CONFLICT`) fails on the repeated key. Both guarantees are tested (`test_rule_sql_returns_the_hit_columns`, `test_two_accounts_of_one_customer_survive_repeated_hourly_upserts`).
 
 Consolidation and scoring read only these columns plus `weight` and `mode` from `rule.yaml`: `shadow` hits are stored and counted but never create alerts; all live hits for one customer and business day become one alert, each hit keeping its own evidence; the score counts each rule's weight once per alert however many hits it has.
 
