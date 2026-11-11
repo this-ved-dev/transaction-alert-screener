@@ -6,7 +6,7 @@ for the engine, the alert page, the injector framework or the agent to pick your
 | File | Contract |
 |---|---|
 | `rule.yaml` | validated against `rules/_schema/rule.schema.json`; bump `version` on any change |
-| `rule.sql` | DuckDB; returns `customer_id, account_id, business_day, matched_txn_ids, computed_values` |
+| `rule.sql` | DuckDB; returns `customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values`, one row per (customer_id, business_day, group_key); `group_key` is the value of `key` (cif_id, account_id, country, beneficiary account …), never NULL |
 | `inject.py` | `inject(df, rng, n) -> (df, cases)`; label-blind; cases go to `data/answer_key.json` |
 | `explain.py` | `evidence(hit, entries) -> list[EvidenceItem]`; no LLM calls here |
 | `evidence.html` | Django partial; receives `hit` and `txns`; autoescaped |

@@ -1,14 +1,21 @@
 -- Rule SQL contract (DuckDB). The engine provides:
 --   view  entries         canonical entries (camt.054-shaped; see docs/05-architecture.md)
 --   view  customers       cif_id, risk_tier, ...
---   param {{ asof }}      the business day being run (DATE)
---   param {{ params.* }}  from rule.yaml, after tier multipliers are applied by the engine
--- It must return exactly these five columns:
---   customer_id, account_id, business_day, matched_txn_ids (LIST<VARCHAR>), computed_values (JSON)
+--   Jinja asof            the business day being run (DATE)
+--   Jinja params.<key>    from rule.yaml, after tier multipliers are applied by the engine
+--   (no Jinja braces in comments: they are rendered too)
+-- It must return exactly these six columns (screener.schema.HIT_COLUMNS):
+--   customer_id, account_id, business_day,
+--   group_key (VARCHAR, never NULL: the value of rule.yaml key, e.g. cif_id, account_id, country),
+--   matched_txn_ids (LIST<VARCHAR>), computed_values (JSON)
+-- and at most one row per (customer_id, business_day, group_key): hits upsert on that key.
+-- Several variants, directions or conditions per key value: prefix group_key (a:CIF00001,
+-- CRDT:CIF00001) or merge them into one row; see docs/05-architecture.md, Hit to alert contract.
 SELECT
     e.cif_id                                   AS customer_id,
-    NULL                                       AS account_id,
+    NULL::VARCHAR                              AS account_id,
     e.business_date                            AS business_day,
+    e.cif_id                                   AS group_key,  -- key: customer
     list(e.entry_id)                           AS matched_txn_ids,
     to_json({'cash_in_total': sum(e.amount), 'threshold': {{ params.threshold_usd }}}) AS computed_values
 FROM entries e

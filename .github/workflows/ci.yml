@@ -58,17 +58,17 @@ jobs:
         with: { version: "${{ env.UV_VERSION }}", enable-cache: true }
       - run: uv sync --all-extras --frozen
       - id: ready
-        run: echo "ok=$([ -f screener/cli.py ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        run: echo "ok=$([ -f screener/engine.py ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: "Contract and schema checks (always)"
         run: uv run pytest tests/test_contracts.py -q
-      - name: Fixture run and rule regression (once TRA-6 and TRA-21 exist)
+      - name: Fixture run and rule regression (once TRA-21 exists)
         if: steps.ready.outputs.ok == 'true'
         run: |
           uv run screener fixtures
           uv run screener run --day 2023-07-14 --store sqlite
           uv run pytest rules -q
       - if: steps.ready.outputs.ok != 'true'
-        run: echo "::notice::rule regression skipped until screener/cli.py exists (TRA-6, TRA-21)"
+        run: echo "::notice::rule regression skipped until screener/engine.py exists (TRA-21)"
 
   docker:
     runs-on: ubuntu-24.04

@@ -124,6 +124,11 @@
     "tier_multipliers": {
       "type": "object",
       "description": "threshold multipliers by risk tier; default 1.0/1.0/1.0 (the client's thresholds are flat); editable in the admin console",
+      "default": {
+        "low": 1.0,
+        "medium": 1.0,
+        "high": 1.0
+      },
       "properties": {
         "low": {
           "type": "number"

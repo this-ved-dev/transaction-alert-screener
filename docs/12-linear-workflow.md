@@ -183,7 +183,7 @@ Then: invite the three collaborators (`gh api -X PUT repos/this-ved-dev/transact
 | Ticket | Owner | Change |
 |---|---|---|
 | TRA-5 scaffold | Vedant | Status note only: hourly cron and quarantine table added to the scaffold. |
-| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day) so hourly reruns upsert; `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
+| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day, group_key) so hourly reruns upsert (group_key added in the PR #7 review so two accounts of one customer keep separate hits); `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
 | TRA-7 ci.yml | Vedant | No change. |
 | TRA-8 Docker/compose | Vedant | `docker/crontab`: hourly `screener run --since last` plus nightly `screener run --day yesterday --reconcile`; AC adds "hourly run is idempotent on a second pass". |
 | TRA-9 CI docker job | Vedant | Smoke sequence adds `screener run --since` after the day run and asserts no duplicate alerts. |
