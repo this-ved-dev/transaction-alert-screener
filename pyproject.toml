@@ -62,4 +62,4 @@ python_files = ["test_*.py"]
 markers = [
   "integration: needs the Postgres service (deselected in the unit job)",
 ]
-addopts = "-ra"
+addopts = "-ra --import-mode=importlib"

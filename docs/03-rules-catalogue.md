@@ -49,6 +49,25 @@ recall 10/10. Commands, assumptions, source hash and caveats are in `docs/09-eva
 This measurement uses one account per customer, both transfer legs, and original source amounts. Re-measure
 after US-layer grouping or amount normalization changes. No third-party rows are committed.
 
+### R12 implementation (TRA-37)
+
+Version 1 implements both variants in one SQL with variant-prefixed hit keys and weight 3.
+Pair variant: at least three payments, each at most $9,999.99, totalling at least $10,000.01
+in seven calendar dates. Funnel variant: at least five distinct senders including three
+new relationships, with the same per-entry cap and total minimum. New means no eligible
+payment for that sender/receiver pair in the 90 dates before the current seven-date window.
+Prior large payments count as relationship history; within-window repeats do not increase
+distinct or new-sender counts. These are project detection parameters, not an automatic
+regulatory finding. Red flags: RF-007 and RF-012 in `rules/red_flags.yaml`.
+
+Debit legs report the sender's customer with `group_key='a:<sender>><receiver>'`; credit legs
+report the receiver's customer with `group_key='b:<receiver>'`. Both require new qualifying
+activity on the run date. Cash, fees, interest, pending/reversed/non-USD entries, missing
+endpoints, and own-account transfers are excluded. The funnel requires receiver credit legs;
+sender-only canonical data is insufficient. Mode remains shadow until measured coverage and
+volume justify live use under the combined budget of 40/month per 100k accounts. Measurement
+command and results: `docs/09-evaluation.md`. Full panels and explain tools remain in TRA-38.
+
 ## G1. Facts from the reply (verbatim meaning, our tag)
 1. **Priority:** wires and cash deposits first ("those two feed our three core rules"), ACH next, P2P last and possibly absent from the export. [client]
 2. **Geography:** US regional bank, domestic customers, no foreign branches; some outbound wires go abroad. The 60-minute threshold did not come from him; any time-based rule must be walked through with him before it goes live. [client]
