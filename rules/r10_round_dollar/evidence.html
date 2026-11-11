@@ -1,0 +1,9 @@
+{# Summary partial; the full evidence panel and agent integration are owned by TRA-38. #}
+<section class="evidence" data-rule="r10">
+  <h3>Round-dollar pattern</h3>
+  <p>{{ hit.computed_values.entry_count }} qualifying non-cash entries in
+    {{ hit.computed_values.window_days }} days, totalling ${{ hit.computed_values.total_amount }}.</p>
+  <p>Each entry is at least ${{ hit.computed_values.min_amount }} and an exact multiple of
+    ${{ hit.computed_values.multiple_of }}. Review the commercial purpose; this pattern alone
+    does not establish suspicious activity.</p>
+</section>

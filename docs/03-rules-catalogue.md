@@ -28,6 +28,27 @@ Defaults are industry convention. Tier multipliers default 1.0 (configurable in 
 
 Why this grouping: each process shares a data shape (cash rows; per-account history; inbound-outbound flows; counterparty attributes), so each owner writes one set of helper views and one evidence panel style. Debasish's three pain points land one each on Abdul (R5), Natalie (R9, R11), which spreads the demo weight.
 
+### R10 implementation and evidence (TRA-36)
+
+Version 1: `min_count=5`, `window_days=30`, `multiple_of=1000`, `min_amount=2000`;
+weight 1, live mode, budget 10/month per 100k accounts, flat tier multipliers. These are pattern
+thresholds from the project definition, not a statutory round-dollar threshold. RF-010 links
+to the FFIEC red-flag source in `rules/red_flags.yaml`.
+
+Count booked, unreversed USD non-cash payment (`PMNT`) entries in either direction across a
+customer's accounts over the run date and prior 29 calendar dates. Exclude `CNTR` and
+`CCRD/CWDL` cash while allowing non-cash card entries; exclude fees and interest (`ACMT`) and
+both legs of transfers between the customer's own accounts. Each amount must be at least $2,000
+and have zero decimal remainder modulo $1,000. Fire only on a run date that adds a qualifying
+entry, so one pattern raises one alert, not one per day it stays in the window.
+Return one customer hit (`group_key=cif_id`) with sorted entry IDs, count, total and thresholds.
+The analyst must still establish the commercial context; the rule does not infer intent.
+
+Measurement: 79 qualifying natural SAML-D entries and zero natural customer-day hits; injected
+recall 10/10. Commands, assumptions, source hash and caveats are in `docs/09-evaluation.md`.
+This measurement uses one account per customer, both transfer legs, and original source amounts. Re-measure
+after US-layer grouping or amount normalization changes. No third-party rows are committed.
+
 ## G1. Facts from the reply (verbatim meaning, our tag)
 1. **Priority:** wires and cash deposits first ("those two feed our three core rules"), ACH next, P2P last and possibly absent from the export. [client]
 2. **Geography:** US regional bank, domestic customers, no foreign branches; some outbound wires go abroad. The 60-minute threshold did not come from him; any time-based rule must be walked through with him before it goes live. [client]
