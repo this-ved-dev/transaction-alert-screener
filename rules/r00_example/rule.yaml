@@ -2,7 +2,7 @@
 id: r00
 name: Example cash-in total above a threshold
 owner: example
-version: 1
+version: 2
 mode: "off"                    # live | shadow | off
 key: customer                  # aggregation key the hit is reported on
 windows:
@@ -16,4 +16,4 @@ tier_multipliers: { low: 1.0, medium: 1.0, high: 1.0 }   # client thresholds are
 client_definition: "example only: cash in above the threshold on one day"
 description: >
   Example only. Sums cash-in entries per customer per business day and fires when the total
-  exceeds the threshold. Demonstrates the five-column hit contract and parameter templating.
+  exceeds the threshold. Demonstrates the hit contract (group_key = cif_id for a customer-keyed rule) and parameter templating.

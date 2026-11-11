@@ -9,7 +9,7 @@
 5. Four-eyes: `ESCALATED → SAR_RECOMMENDED` requires a BSA officer who is not the escalating analyst.
 6. Thresholds: versioned rows edited in the **admin console** with maker-checker (an analyst or officer proposes with a reason; a different officer approves); applies to future runs; each hit stores its rule-version ID; `backtest` reports alert counts per rule per version. Rule modes: `live`, `shadow`, `off`. **Seasonal profiles**: a named parameter set with a date range (Nov–Jan) that overrides defaults, versioned the same way.
 7. Suppression: one rule, one customer, ≤90 days, with reason; logged; no other auto-close.
-8. Priority score = Σ rule weights × tier factor + 2 × prior alerts in 12 months; sorted by score then age; age badge at 20 days; SAR clock after escalation.
+8. Priority score = Σ rule weights (each rule once per alert, however many hits it has) × tier factor + 2 × prior alerts in 12 months; sorted by score then age; age badge at 20 days; SAR clock after escalation.
 9. Audit log: append-only; actor, role, timestamp, entity, action, before/after JSON, reason; hash-chained; the app's Postgres role lacks UPDATE/DELETE on it.
 10. Audit export: date range or customer → CSV + printable HTML, including rule versions in force and any agent drafts with their evidence.
 11. Business day = posting date; weekend/holiday cash rolls forward.
@@ -25,9 +25,9 @@
 | `branch` | id, name, city, state, lat, lon, full_service |
 | `entry` (was `transaction`; camt.054-entry-shaped, see D6) | entry_id, account_id, amount, currency, credit_debit, is_reversal, status, booking_ts, value_date, **business_date**, btc_domain, btc_family, btc_subfamily, btc_proprietary, channel, instrument_refs (end_to_end_id, uetr, trace_no, cheque_no), debtor / creditor (name, cif_id, country), debtor_account / creditor_account, debtor_agent / creditor_agent (routing, country), branch_id, conductor, purpose, memo, cash_detail, card_detail, source_message, raw_ref, typology_label (hidden) |
 | `rule_version` | id, rule_id, version, mode, params JSON, weight, red_flag_ids, profile (default/seasonal), effective_from, effective_to, proposed_by, approved_by, reason |
-| `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, matched_txn_ids, computed_values JSON |
+| `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values JSON |
 | `alert` | id, customer_id, business_day, score, status, assigned_to, risk_tier_at_fire, created_at |
-| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day) so hourly reruns upsert |
+| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day, group_key) so hourly reruns upsert and two accounts of one customer keep separate hits |
 | `rejected_entry` | id, load_batch_id, source, raw_row JSON, reason, created_at (client: bad rows are set aside with a reason, never dropped) |
 | `agent_draft` | id, alert_id, model, prompt_hash, evidence_pack JSON, output, created_by, created_at |
 | `country_risk` | country, tier, source, effective_from, effective_to |
@@ -70,17 +70,20 @@ Source of truth: `screener/schema.py` (`ENTRY`, a pyarrow schema). One row per b
 
 **Rule SQL inputs.** The engine provides the view `entries` (validated canonical rows) and `customers` (`cif_id`, `risk_tier`, …), and renders `rule.sql` with Jinja (`StrictUndefined`) using `asof` (the business day, ISO string) and `params.<key>` (from `rule.yaml`, after tier multipliers). Jinja braces inside SQL comments are rendered too, so comments must not contain them.
 
-**Hit → alert contract.** `rule.sql` returns exactly these columns, in this order, with these DuckDB types (`schema.HIT_COLUMNS`, enforced by `tests/test_contracts.py` on the fixture Parquet):
+**Hit → alert contract.** `rule.sql` returns exactly these six columns, in this order, with these DuckDB types (`schema.HIT_COLUMNS`, enforced by `tests/test_contracts.py` on the fixture Parquet):
 
 | Column | Type | Meaning |
 |---|---|---|
 | `customer_id` | VARCHAR | the `cif_id` the hit is reported on |
 | `account_id` | VARCHAR | the account for account-keyed rules; `NULL::VARCHAR` otherwise |
 | `business_day` | DATE | the business day the hit belongs to |
+| `group_key` | VARCHAR, never NULL | the value of the rule's `key` in `rule.yaml`: `cif_id` for `customer`, `account_id` for `account`, the country code for `customer_country`, the beneficiary account for `customer_beneficiary`, and so on |
 | `matched_txn_ids` | VARCHAR[] | `entry_id`s the analyst sees as evidence |
 | `computed_values` | JSON | the numbers the evidence panel and `explain.py` quote (totals, counts, thresholds) |
 
-The engine adds `run_id` and `rule_version_id` and upserts into `hit`, unique on (`rule_version_id`, `customer_id`, `business_day`), so the hourly incremental run never duplicates. Consolidation and scoring read only these columns plus `weight` and `mode` from `rule.yaml`: `shadow` hits are stored and counted but never create alerts; live hits for one customer and business day become one alert.
+A rule returns at most one row per (`customer_id`, `business_day`, `group_key`). The engine adds `run_id` and `rule_version_id` and upserts into `hit` on `schema.HIT_IDENTITY` = (`rule_version_id`, `customer_id`, `business_day`, `group_key`); later hourly runs update `matched_txn_ids` and `computed_values` in place and never duplicate. `group_key` is in the identity because one rule can fire for two accounts, countries or beneficiaries of the same customer on the same day (R05, R06, R09): without it, a row-by-row upsert overwrites one account's evidence with the other's, and a bulk upsert (Postgres `ON CONFLICT`) fails on the repeated key. Both guarantees are tested (`test_rule_sql_returns_the_hit_columns`, `test_two_accounts_of_one_customer_survive_repeated_hourly_upserts`).
+
+Consolidation and scoring read only these columns plus `weight` and `mode` from `rule.yaml`: `shadow` hits are stored and counted but never create alerts; all live hits for one customer and business day become one alert, each hit keeping its own evidence; the score counts each rule's weight once per alert however many hits it has.
 
 ---
 
@@ -128,10 +131,10 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 
 **Day-0 contracts** (written into `docs/05-architecture.md` and enforced by tests; these are what let four people work in parallel):
 1. Canonical Parquet schema (column names, types) and the committed fixture Parquet (§ Canonical entry schema above; `screener fixtures`).
-2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
+2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
 3. **Evidence-panel contract:** `rules/<id>_<slug>/evidence.html`, a Django template partial receiving `hit` (with `computed_values`) and `txns`; the alert page includes one per hit. Owners build UI for their rules without editing the alert page.
 4. **Injector contract:** `rules/<id>_<slug>/inject.py` exposing `inject(df, rng, n) -> (df, cases)`; the US layer calls each and writes `answer_key.json`.
-5. **Hit → alert contract:** consolidation and scoring read only the five hit columns plus `rule.yaml` weight.
+5. **Hit → alert contract:** consolidation and scoring read only the six hit columns plus `rule.yaml` weight and mode.
 6. **Agent tool contract:** `rules/<id>_<slug>/explain.py` exposing `evidence(hit, entries) -> list[EvidenceItem]`; the agent harness concatenates them.
 
 ## E4. Interface decision record (ADR-001)

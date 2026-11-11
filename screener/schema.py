@@ -100,7 +100,17 @@ CHANNELS = (
     "WIRE_ROOM",
     "SYSTEM",
 )
-HIT_COLUMNS = ("customer_id", "account_id", "business_day", "matched_txn_ids", "computed_values")
+HIT_COLUMNS = (
+    "customer_id",
+    "account_id",
+    "business_day",
+    "group_key",  # value of rule.yaml `key`: cif_id, account_id, country, beneficiary account, ...
+    "matched_txn_ids",
+    "computed_values",
+)
+# One rule can fire for two accounts (or countries, beneficiaries) of one customer on one day,
+# so group_key is part of the identity the engine and the `hit` table upsert on.
+HIT_IDENTITY = ("rule_version_id", "customer_id", "business_day", "group_key")
 
 
 def validate(table: pa.Table) -> tuple[pa.Table, list[dict]]:

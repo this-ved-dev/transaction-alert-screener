@@ -155,7 +155,7 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 5. Four-eyes: `ESCALATED → SAR_RECOMMENDED` requires a BSA officer who is not the escalating analyst.
 6. Thresholds: versioned rows edited in the **admin console** with maker-checker (an analyst or officer proposes with a reason; a different officer approves); applies to future runs; each hit stores its rule-version ID; `backtest` reports alert counts per rule per version. Rule modes: `live`, `shadow`, `off`. **Seasonal profiles**: a named parameter set with a date range (Nov–Jan) that overrides defaults, versioned the same way.
 7. Suppression: one rule, one customer, ≤90 days, with reason; logged; no other auto-close.
-8. Priority score = Σ rule weights × tier factor + 2 × prior alerts in 12 months; sorted by score then age; age badge at 20 days; SAR clock after escalation.
+8. Priority score = Σ rule weights (each rule once per alert, however many hits it has) × tier factor + 2 × prior alerts in 12 months; sorted by score then age; age badge at 20 days; SAR clock after escalation.
 9. Audit log: append-only; actor, role, timestamp, entity, action, before/after JSON, reason; hash-chained; the app's Postgres role lacks UPDATE/DELETE on it.
 10. Audit export: date range or customer → CSV + printable HTML, including rule versions in force and any agent drafts with their evidence.
 11. Business day = posting date; weekend/holiday cash rolls forward.
@@ -171,9 +171,9 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | `branch` | id, name, city, state, lat, lon, full_service |
 | `entry` (was `transaction`; camt.054-entry-shaped, see D6) | entry_id, account_id, amount, currency, credit_debit, is_reversal, status, booking_ts, value_date, **business_date**, btc_domain, btc_family, btc_subfamily, btc_proprietary, channel, instrument_refs (end_to_end_id, uetr, trace_no, cheque_no), debtor / creditor (name, cif_id, country), debtor_account / creditor_account, debtor_agent / creditor_agent (routing, country), branch_id, conductor, purpose, memo, cash_detail, card_detail, source_message, raw_ref, typology_label (hidden) |
 | `rule_version` | id, rule_id, version, mode, params JSON, weight, red_flag_ids, profile (default/seasonal), effective_from, effective_to, proposed_by, approved_by, reason |
-| `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, matched_txn_ids, computed_values JSON |
+| `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values JSON |
 | `alert` | id, customer_id, business_day, score, status, assigned_to, risk_tier_at_fire, created_at |
-| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day) so hourly reruns upsert |
+| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day, group_key) so hourly reruns upsert and two accounts of one customer keep separate hits |
 | `rejected_entry` | id, load_batch_id, source, raw_row JSON, reason, created_at (client: bad rows are set aside with a reason, never dropped) |
 | `agent_draft` | id, alert_id, model, prompt_hash, evidence_pack JSON, output, created_by, created_at |
 | `country_risk` | country, tier, source, effective_from, effective_to |
@@ -355,10 +355,10 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 
 **Day-0 contracts** (written into `docs/05-architecture.md` and enforced by tests; these are what let four people work in parallel):
 1. Canonical Parquet schema (column names, types) and the committed fixture Parquet.
-2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
+2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
 3. **Evidence-panel contract:** `rules/<id>_<slug>/evidence.html`, a Django template partial receiving `hit` (with `computed_values`) and `txns`; the alert page includes one per hit. Owners build UI for their rules without editing the alert page.
 4. **Injector contract:** `rules/<id>_<slug>/inject.py` exposing `inject(df, rng, n) -> (df, cases)`; the US layer calls each and writes `answer_key.json`.
-5. **Hit → alert contract:** consolidation and scoring read only the five hit columns plus `rule.yaml` weight.
+5. **Hit → alert contract:** consolidation and scoring read only the six hit columns plus `rule.yaml` weight and mode.
 6. **Agent tool contract:** `rules/<id>_<slug>/explain.py` exposing `evidence(hit) -> list[EvidenceItem]`; the agent harness concatenates them.
 
 ## E4. Interface decision record (ADR-001)
@@ -635,7 +635,7 @@ Flag-only and human decision (Part C, every rule ticket, agent controls A1); aud
 | C3 | **R04 version-1 default = the client's dormancy:** idle ≥180 days counting customer-initiated entries only (interest and fees excluded, any deposit resets), then **outbound ≥ $2,000** within 7 days. Our $5,000 in-or-out and 10× rules become version 2. | `rules/r04_dormant_reactivation/README.md`, docs/03 | TRA-25 |
 | C4 | **Rule priority and modes:** P1 live-candidates R01, R02, R03, R04, R09, R06 (R06 scoped to outbound wires abroad; inbound cross-border weight lowered); P2 R05, R12, R07, R08; P3 R11 stays **shadow** with the note "rail may be absent from the export". Linear priorities set accordingly. Note the conflict with the kickoff pain points (pass-through, new beneficiary, P2P) and ask Debasish to confirm the order in the next written exchange. | docs/03 B2 table, docs/08 | TRA-15/16/17/25/42/41 → Urgent; TRA-33/37/26/27 → High; TRA-43 → Medium, mode shadow |
 | C5 | **Time-based rules need a client walkthrough before live:** R05 (72h) and R07 (48h) and any version-2 window change. Add a gate to the acceptance criteria. | docs/03, docs/08 | TRA-33, TRA-26 |
-| C6 | **Hourly incremental batch:** `screener run --since <last_run>` processes new entries, re-evaluates affected customer-days, and upserts hits and alerts by (rule_version, customer, business_day) so reruns are idempotent; scheduler cron becomes hourly; nightly remains a full reconciliation run. | `docker/crontab`, docs/05, E3 data flow | TRA-21 (engine), TRA-8 (compose) |
+| C6 | **Hourly incremental batch:** `screener run --since <last_run>` processes new entries, re-evaluates affected customer-days, and upserts hits by (rule_version, customer, business_day, group_key) and alerts by (customer, business_day) so reruns are idempotent; scheduler cron becomes hourly; nightly remains a full reconciliation run. | `docker/crontab`, docs/05, E3 data flow | TRA-21 (engine), TRA-8 (compose) |
 | C7 | **Quarantine, never drop:** `rejected_entry` table (load_batch_id, raw row, reason, source) written by every adapter; count shown on the load report; a Quarantine page lists rows with reasons. | docs/05 data model, docs/04 | TRA-6 (schema), TRA-24 (adapter), TRA-34 (page) |
 | C8 | **Per-account audit view:** account-level filter on the export; printable one-page account summary (every flag: date, rule, version, amount, decision, actor); CSV opens in Excel, so CSV plus the printable page satisfies "CSV or Excel". | docs/11 demo step 9 | TRA-12, TRA-28 (customer page gets an account history tab) |
 | C9 | **Risk tier:** multipliers default to 1.0 (client thresholds are flat); multipliers stay configurable in the admin console; drop sanctions/PEP-based tiering from the US layer (KYC is the core's job). Rating shown on every alert. | docs/03, docs/04 D3 | TRA-30 (remove PEP tiering), TRA-34 (show rating) |
@@ -651,7 +651,7 @@ The canonical schema and contracts (the client's "plan a mapping step" is exactl
 | Ticket | Owner | Change |
 |---|---|---|
 | TRA-5 scaffold | Vedant | Status note only: hourly cron and quarantine table added to the scaffold. |
-| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day) so hourly reruns upsert; `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
+| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day, group_key) so hourly reruns upsert (group_key added in the PR #7 review so two accounts of one customer keep separate hits); `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
 | TRA-7 ci.yml | Vedant | No change. |
 | TRA-8 Docker/compose | Vedant | `docker/crontab`: hourly `screener run --since last` plus nightly `screener run --day yesterday --reconcile`; AC adds "hourly run is idempotent on a second pass". |
 | TRA-9 CI docker job | Vedant | Smoke sequence adds `screener run --since` after the day run and asserts no duplicate alerts. |

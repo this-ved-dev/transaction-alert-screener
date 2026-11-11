@@ -2,13 +2,15 @@
 
 Rule folders validate, red flags resolve, params are used, hostile memos are present, every
 BankTransactionCode we map is in the ISO codification, the fixture Parquet is reproducible and
-quarantines its planted bad rows, and every rule.sql returns the five hit columns on it.
+quarantines its planted bad rows, every rule.sql returns the hit columns on it, and hits keep one
+row per account (group_key) through repeated hourly upserts.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -121,12 +123,14 @@ def entries():
     return con
 
 
+def render(sql: str, params: dict) -> str:
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    return env.from_string(sql).render(params=params, asof=fixtures.DEMO_DAY.isoformat())
+
+
 def run_rule(con, rule_dir: Path) -> duckdb.DuckDBPyRelation:
     rule = yaml.safe_load((rule_dir / "rule.yaml").read_text())
-    template = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(
-        (rule_dir / "rule.sql").read_text()
-    )
-    return con.sql(template.render(params=rule["params"], asof=fixtures.DEMO_DAY.isoformat()))
+    return con.sql(render((rule_dir / "rule.sql").read_text(), rule["params"]))
 
 
 @pytest.mark.parametrize("rule_dir", RULE_DIRS, ids=lambda p: p.name)
@@ -135,10 +139,60 @@ def test_rule_sql_returns_the_hit_columns(rule_dir: Path, entries):
         pytest.skip(f"{rule_dir.name}: rule.sql not written yet")
     rel = run_rule(entries, rule_dir)
     assert tuple(rel.columns) == schema.HIT_COLUMNS
-    assert [str(t) for t in rel.types] == ["VARCHAR", "VARCHAR", "DATE", "VARCHAR[]", "JSON"]
-    rel.fetchall()
+    types = ["VARCHAR", "VARCHAR", "DATE", "VARCHAR", "VARCHAR[]", "JSON"]
+    assert [str(t) for t in rel.types] == types
+    rows = [dict(zip(rel.columns, r, strict=True)) for r in rel.fetchall()]
+    assert all(r["group_key"] is not None for r in rows), "group_key must never be NULL"
+    keys = [(r["customer_id"], r["business_day"], r["group_key"]) for r in rows]
+    assert len(keys) == len(set(keys)), "one row per (customer_id, business_day, group_key)"
 
 
 def test_r00_fires_on_the_fixture_demo_day(entries):
     rows = run_rule(entries, RULES / "r00_example").fetchall()
-    assert [(r[0], sorted(r[3])) for r in rows] == [("CIF00001", ["FX000000", "FX000001"])]
+    assert [(r[0], r[3], sorted(r[4])) for r in rows] == [
+        ("CIF00001", "CIF00001", ["FX000000", "FX000001"])
+    ]
+
+
+# Account-keyed rule (like R05): CIF00001's two accounts both pass $4,000 cash in on DEMO_DAY.
+ACCOUNT_KEYED_SQL = """
+SELECT cif_id AS customer_id, account_id, business_date AS business_day, account_id AS group_key,
+       list(entry_id ORDER BY entry_id) AS matched_txn_ids,
+       to_json({'cash_in_total': sum(amount)}) AS computed_values
+FROM entries
+WHERE btc_subfamily = 'CDPT' AND credit_debit = 'CRDT' AND business_date = DATE '{{ asof }}'
+GROUP BY ALL
+HAVING sum(amount) > {{ params.threshold_usd }}
+"""
+
+
+def test_two_accounts_of_one_customer_survive_repeated_hourly_upserts():
+    con = duckdb.connect()
+    con.register("base", schema.validate(pq.read_table(FIXTURE))[0])
+    con.execute(
+        "CREATE TABLE hit (rule_version_id INTEGER, customer_id VARCHAR, account_id VARCHAR, "
+        "business_day DATE, group_key VARCHAR, matched_txn_ids VARCHAR[], computed_values JSON, "
+        f"PRIMARY KEY ({', '.join(schema.HIT_IDENTITY)}))"
+    )
+    upsert = (
+        f"INSERT INTO hit SELECT 1, * FROM ({render(ACCOUNT_KEYED_SQL, {'threshold_usd': 4000})}) "
+        "ON CONFLICT DO UPDATE SET matched_txn_ids = excluded.matched_txn_ids, "
+        "computed_values = excluded.computed_values"
+    )
+    con.execute("CREATE VIEW entries AS SELECT * FROM base")
+    con.execute(upsert)
+    con.execute(upsert)  # the same hour run again
+    con.execute(  # next hour: a late $100 deposit lands on ACC00001
+        "CREATE OR REPLACE VIEW entries AS SELECT * FROM base UNION ALL "
+        "SELECT * REPLACE ('FXLATE' AS entry_id, 100::DECIMAL(18, 2) AS amount) "
+        "FROM base WHERE entry_id = 'FX000000'"
+    )
+    con.execute(upsert)
+    got = con.sql(
+        "SELECT group_key, matched_txn_ids, (computed_values->>'cash_in_total')::DECIMAL(18, 2) "
+        "FROM hit WHERE customer_id = 'CIF00001' ORDER BY group_key"
+    ).fetchall()
+    assert got == [
+        ("ACC00001", ["FX000000", "FXLATE"], Decimal("6100.00")),
+        ("ACC00201", ["FX000001"], Decimal("4500.00")),
+    ]
