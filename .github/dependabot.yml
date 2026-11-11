@@ -17,3 +17,7 @@ updates:
     directory: /
     schedule: { interval: weekly }
     groups: { python: { patterns: ["*"] } }
+    ignore:
+      # ADR-001 chose Django 5; a major bump is a team decision, not a dependabot PR
+      - dependency-name: "django"
+        update-types: ["version-update:semver-major"]
