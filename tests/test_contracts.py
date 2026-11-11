@@ -2,8 +2,9 @@
 
 Rule folders validate, red flags resolve, params are used, hostile memos are present, every
 BankTransactionCode we map is in the ISO codification, the fixture Parquet is reproducible and
-quarantines its planted bad rows, every rule.sql returns the hit columns on it, and hits keep one
-row per account (group_key) through repeated hourly upserts.
+quarantines its planted bad rows, every rule.sql returns the hit columns on it, hits keep one
+row per account (group_key) through repeated hourly upserts, and the bank-feed skeletons and the
+field sheet (docs/14) name only canonical columns.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from screener import btc, schema
-from screener.adapters import fixtures
+from screener.adapters import core_csv, fixtures, wire_feed
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES = ROOT / "rules"
@@ -81,6 +82,21 @@ def test_every_mapped_triplet_and_channel_is_valid():
     assert not bad, f"not in the ISO codification: {bad}"
     assert {c["channel"] for c in combos} <= set(schema.CHANNELS)
     assert not btc.is_valid("PMNT", "CNTR", "ZZZZ")
+
+
+@pytest.mark.parametrize("feed", [core_csv, wire_feed], ids=["core_csv", "wire_feed"])
+def test_feed_skeleton_names_canonical_columns_and_waits_for_layout(feed):
+    lists = feed.REQUIRED + feed.DERIVABLE + feed.NICE_TO_HAVE
+    assert len(lists) == len(set(lists)), "a column has two marks"
+    assert set(lists) <= set(schema.ENTRY.names), set(lists) - set(schema.ENTRY.names)
+    assert set(schema.REQUIRED) <= set(feed.REQUIRED + feed.DERIVABLE), "validate() would reject"
+    with pytest.raises(NotImplementedError, match="layout not received yet"):
+        feed.load("any.csv")
+
+
+def test_field_sheet_lists_every_canonical_column():
+    sheet = (ROOT / "docs" / "14-field-requirements.md").read_text()
+    assert [c for c in schema.ENTRY.names if f"`{c}`" not in sheet] == []
 
 
 def test_fixture_is_reproducible_small_and_current(tmp_path):
