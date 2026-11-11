@@ -18,6 +18,27 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | R07 | | | | | | | | |
 | R08 | | | | | | | | |
 | R09 | | | | | | | | |
-| R10 | | | | | | | | |
+| R10 | live | 0 natural | N/A (no natural hits) | 100% injected (10/10) | N/A | Synthetic R10 answer key; native labels reported separately | Natural: 2022-10-07–2023-08-23 | See R10 commands below |
 | R11 | | | | | | | | |
 | R12 | | | | | | | | |
+
+### R10 measured baseline (TRA-36, 2026-11-11)
+
+Commands: `uv run pytest rules/r10_round_dollar tests/test_contracts.py -q` and
+`uv run python scripts/measure_r10.py data/raw/saml_d/SAML-D.csv`.
+
+- Full source: 9,504,852 rows; SHA-256
+  `5b71ce2ea7b47fe6f19da1aa151776b04ec74560a852c2c077df91d20b8b4ef9`.
+- 79 non-cash entries meet the amount condition; zero carry `Is_laundering = 1`.
+  Running the actual rule SQL for every date in the source range yields zero customer-day hits:
+  no sender has five qualifying entries in a 30-calendar-day window. Scaled natural volume
+  remains zero against the budget of 10/month per 100k accounts.
+- Ten injected positive customer cases, five entries each: all ten detected, 100% recall.
+  Natural precision and lift are undefined with no alerts; injected recall is not native-label
+  recall and does not measure performance on real bank data.
+- Measurement reads the original CSV directly and uses one sender account as one customer,
+  with USD interpreted 1:1. Exact source decimals are filtered before conversion to cents;
+  no extra round-dollar rows are created by rounding. This baseline does not use TRA-24,
+  synthetic US grouping, the pending engine, or the TRA-40 evaluation harness.
+- Retain live mode for this implementation under the recorded budget. Re-measure after customer
+  grouping or input-normalization changes; a real bank's exact-thousand frequency may differ.
