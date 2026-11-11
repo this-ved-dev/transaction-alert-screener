@@ -8,6 +8,8 @@ account, files a report or contacts a customer.
 Team: **Vedant Misra** (lead), **Abdul Malik Shaik**, **Vedanshu Daxesh Patel**, **Natalie King**. Client: Debasish Chanda (bank
 leadership), Anurag Gupta (Coforge partner), Stacy (banking SME). Course project; all data is synthetic or public.
 
+Repository: https://github.com/this-ved-dev/transaction-alert-screener · Linear: https://linear.app/transaction-monitoring
+
 ## Ground rules
 1. **Synthetic data only.** No real customer, account or transaction data, ever. Public datasets are read locally and never committed (`.gitignore`, pre-commit 1 MB block).
 2. **Flag and report only.** Humans decide. No auto-close, by rules or by the agent.
