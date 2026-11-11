@@ -12,7 +12,8 @@ params:
 weight: 1.0
 red_flag_ids: [RF-004]
 budget_per_month: 10
-tier_multipliers: { low: 1.5, medium: 1.0, high: 0.5 }
+tier_multipliers: { low: 1.0, medium: 1.0, high: 1.0 }   # client thresholds are flat; change in the admin console
+client_definition: "example only: cash in above the threshold on one day"
 description: >
   Example only. Sums cash-in entries per customer per business day and fires when the total
   exceeds the threshold. Demonstrates the five-column hit contract and parameter templating.

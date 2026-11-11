@@ -6,7 +6,7 @@ What changed in this revision: (1) the kickoff facts replace the "compliance man
 
 Tags: [verified] primary source · [measured] we ran it on the file · [estimated] derived · [anecdotal] vendor or forum. Sources are numbered [S#] and listed at the end.
 
-**Scope of this document and of the session that produced it.** This is the team's reference document and is committed to the repository as `docs/PLAN.md`. The session that wrote it does three things and then stops: (1) commits this document, (2) creates the Linear workspace structure and every ticket in F3, (3) creates the repository scaffold in F4 with configuration, CI, Docker, contract documents and folder templates but **no application or rule code**. All build work, starting with TRA-6, is done by the ticket owners in their own sessions.
+**Scope of this document and of the session that produced it.** This is the team's reference document and is committed to the repository as `docs/PLAN.md`. The session that wrote it does three things and then stops: (1) commits this document, (2) creates the Linear workspace structure and every ticket in F3, (3) creates the repository scaffold in F4 with configuration, CI, Docker, contract documents and folder templates but **no application or rule code**. All build work, starting with TRA-2, is done by the ticket owners in their own sessions.
 
 ---
 
@@ -98,7 +98,7 @@ Vendor-neutral recommendation from the discovery brief: build the data foundatio
 
 | Friction | Evidence | Answer |
 |---|---|---|
-| Scattered data, no warehouse, Excel and VB scripts | kickoff | Canonical schema with one adapter per source; nightly batch first, streaming lane later |
+| Scattered data, no warehouse, Excel and VB scripts | kickoff | Canonical schema with one adapter per source; hourly incremental batch, no streaming (client: "not real-time") |
 | Core data access; tran codes; account-only keys | [S86–S88] | Editable tran-code map; CIF keys; reconciliation report per load |
 | Vendor risk (OCC 2023-17; SOC 2) | [S89] | Everything runs inside the bank, including the LLM on the bank's credentials |
 | Alert flood; auto-close is a finding | Block, USAA, OCC 2026 | Encode current thresholds as v1; shadow mode; no auto-close by rules or agent |
@@ -116,26 +116,28 @@ Debasish asked for the "why" behind every decision and a regulator report on dem
 # PART B — THE 12 MVP RULES, MAPPED TO DATA AND OWNERS
 
 ## B1. Capacity budget
+Client reply 2026-11-11: rule priority is wires and cash first (R01, R02, R03, R04, R06 outbound, R09), ACH next (R05, R07, R08, R10, R12), P2P last and possibly absent (R11 in shadow). Version 1 of every rule is the client's own definition where he gave one; our variants are version 2, switched on only after a backtest delta and, for time-based windows, a client walkthrough. Tier multipliers default to 1.0 because his thresholds are flat.
+
 Scale to a bank with **100,000 accounts** (SAML-D: 855,460 accounts over 10.5 months, so divide its counts by 8.55 and by 10.5 for per-month). Capacity ~250 alerts/month for two analysts; every rule has a budget; a rule over budget ships in **shadow mode** until tuned under budget.
 
 ## B2. The rules, grouped into four processes
 
-Defaults are industry convention. Tier multiplier Low 1.5×, Med 1.0×, High 0.5×. Every hit stores rule version, parameters, matched transaction IDs and tier at fire time.
+Defaults are industry convention. Tier multipliers default 1.0 (configurable in the admin console). Every hit stores rule version, parameters, matched transaction IDs and tier at fire time.
 
 | Process (owner) | # | Rule | Definition (defaults) | Key / window | Drives volume on | Graded against | Measured / expected | Status |
 |---|---|---|---|---|---|---|---|---|
 | **Cash & CTR** (Vedant) | R1 | CTR candidate | Cash-in > $10,000 or cash-out > $10,000 per business day, totalled separately; weekend/holiday roll-forward | customer / 1 day | SAML-D Cash Deposit 225,206 and Cash Withdrawal 300,477 rows | Fixtures: $10,000.00 vs .01, two accounts one customer, two branches, Friday→Monday, holiday | 195 customer-days [measured] → ~2/month | Live, separate list |
-| | R2 | Structuring, multi-day | (a) ≥3 cash deposits $2,000–$9,999 in 5 business days totalling ≥$15,000; (b) 30-day cash-in ≥$25,000, none > $9,999 | customer / 5 and 30 days | SAML-D cash deposits | **Smurfing** label: 932 deposits, 63 accounts [measured] | (a) 40 accounts, 90% precision, 57% recall; (b) 15, 100% / 24% [measured] → ~1.5/month | Live |
-| | R3 | Structuring, same-day / cross-branch | ≥2 cash deposits $9,000–$10,000 on one day, or ≥2 branches/channels with day total $8,000–$10,000 | customer / 1 day | 0 natural days in SAML-D [measured]; branch is synthetic | ~10 injected cases + fixtures | ~0 natural | Live |
-| **Account behaviour** (Vedanshu) | R4 | Dormant reactivation | No customer-initiated activity ≥180 days, then ≥$5,000 in or out within 7 days, or ≥10× prior 12-month average | account / 180 + 7 days | 10,420 accounts reactivate after 180+ days; 3,730 with ≥$5k in 7 days [measured]; fires from Apr 2023 | No native label; ~15 injected cases + 179-vs-180 fixture | ~42/month [measured, scaled]; the backtest demo | Live |
-| | R7 | New-account burst (mule) | Account age < 90 days; ≥5 distinct inbound senders in 7 days; ≥80% out within 48h | account / 7 days + 48h | "Open date" = first-seen after 90-day warm-up; ~45k new accounts/month [measured] | Fan_In 364, Layered_Fan_In 656, Deposit-Send on new accounts; ~10 injected | Measure in C1; budget ≤30/month | Live if under budget |
+| | R2 | Near-limit deposits (client) / multi-day structuring (ours) | **v1 (client):** any single cash deposit in [$9,000, $10,000]. **v2 (ours, after backtest and walkthrough):** (a) ≥3 cash deposits $2,000–$9,999 in 5 business days totalling ≥$15,000; (b) 30-day cash-in ≥$25,000, none > $9,999 | customer / 5 and 30 days | SAML-D cash deposits | **Smurfing** label: 932 deposits, 63 accounts [measured] | (a) 40 accounts, 90% precision, 57% recall; (b) 15, 100% / 24% [measured] → ~1.5/month | Live |
+| | R3 | Same-day splitting (client) / cross-branch (ours) | **v1 (client):** one customer, ≥2 cash deposits each ≤ $10,000 across all accounts, day total > $10,000; one hit per customer per business day. **v2:** ≥2 branches/channels with day total $8,000–$10,000 | customer / 1 day | 0 natural days in SAML-D [measured]; branch is synthetic | ~10 injected cases + fixtures | ~0 natural | Live |
+| **Account behaviour** (Vedanshu) | R4 | Dormant reactivation | **v1 (client):** no customer-initiated entry for ≥180 days (interest and fees do not reset; any deposit does), then **outbound ≥ $2,000** within 7 days. **v2:** ≥$5,000 in or out, or ≥10× prior 12-month average | account / 180 + 7 days | 10,420 accounts reactivate after 180+ days; 3,730 with ≥$5k in 7 days [measured]; fires from Apr 2023 | No native label; ~15 injected cases + 179-vs-180 fixture | ~42/month [measured, scaled]; the backtest demo | Live |
+| | R7 | New-account burst (mule) | Account age < 90 days; ≥5 distinct inbound senders in 7 days; ≥80% out within 48h | account / 7 days + 48h | "Open date" = first-seen after 90-day warm-up; ~45k new accounts/month [measured] | Fan_In 364, Layered_Fan_In 656, Deposit-Send on new accounts; ~10 injected | Measure in C1; budget ≤30/month | Live if under budget and after a client walkthrough of the 48h window (P2) |
 | | R8 | ATM anomaly | ≥5 ATM withdrawals in 24h; or daily ATM ≥$2,000 and ≥3× 90-day average; or ≥2 states in 24h | account / 24h + 90 days | Cash Withdrawal ≤$1,000 → ATM p=0.7, label-blind, seeded | Cash_Withdrawal typology 1,334 partially; ~8 injected multi-state | Measure in C1; budget ≤30/month | Live if under budget |
-| **Funds movement** (Abdul) | R5 | Rapid pass-through | Inbound ≥$5,000 from A; ≥80% leaves within 72h to ≠A; and trailing-90-day median daily volume < 20% of inbound, or outbound is cross-border or to a first-time beneficiary | account / 72h + 90 days | SAML-D all rails | Deposit-Send 945, Layered_Fan_Out 529, Gather-Scatter 354; Tide benchmark 22.5% precision, 66% recall [measured] | As written floods: 861k hits, 0.4% precision, ~9,600/month [measured]; budget ≤50 | Shadow until under budget. Debasish's #1 pain point, so the tuning story is the centrepiece |
+| **Funds movement** (Abdul) | R5 | Rapid pass-through | Inbound ≥$5,000 from A; ≥80% leaves within 72h to ≠A; and trailing-90-day median daily volume < 20% of inbound, or outbound is cross-border or to a first-time beneficiary | account / 72h + 90 days | SAML-D all rails | Deposit-Send 945, Layered_Fan_Out 529, Gather-Scatter 354; Tide benchmark 22.5% precision, 66% recall [measured] | As written floods: 861k hits, 0.4% precision, ~9,600/month [measured]; budget ≤50 | Shadow until under budget **and** the client has walked through the 72h window. Kickoff pain point #1; priority P2 per the Nov 11 reply |
 | | R10 | Round-dollar pattern | ≥5 non-cash transactions in 30 days, exact multiples of $1,000, each ≥$2,000 | customer / 30 days | 79 natural rows, 0 laundering [measured] | ~10 injected | ~0 natural | Live |
 | | R12 | Transfer splitting | (a) ≥3 transfers originator→same beneficiary, each < $10,000, total > $10,000 in 7 days; (b) funnel: ≥5 distinct senders → one receiver in 7 days, each < $10,000, total > $10,000, ≥3 senders new to the receiver | pair / receiver / 7 days | SAML-D non-cash rails | "Structuring" label = variant (b): 1,870 rows onto 75 receivers [measured]; receiver-only query fired on 161,853, so the new-sender condition is mandatory | Measure in C1; budget ≤40 | (a) live; (b) live if under budget |
-| **Counterparty & rails** (Natalie) | R6 | High-risk jurisdiction transfer | Any cross-border ≥$3,000 with a black-list country; cumulative ≥$10,000 in 30 days with grey-list or internal high-risk; **point-in-time lists** | customer × country / 1 and 30 days | SAML-D Cross-border 933,931 rows, 18 locations incl. Turkey, UAE, Nigeria, Albania, Morocco, Pakistan [measured] | Behavioural_Change_2 345, Structuring cross-border 723, Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget |
+| **Counterparty & rails** (Natalie) | R6 | High-risk jurisdiction transfer | **Outbound wires abroad first** (`PMNT/ICDT/XBCT`; inbound at lower weight). Any cross-border ≥$3,000 with a black-list country; cumulative ≥$10,000 in 30 days with grey-list or internal high-risk; **point-in-time lists** | customer × country / 1 and 30 days | SAML-D Cross-border 933,931 rows, 18 locations incl. Turkey, UAE, Nigeria, Albania, Morocco, Pakistan [measured] | Behavioural_Change_2 345, Structuring cross-border 723, Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget |
 | | R9 | Wire to new beneficiary | First outbound wire ≥$10,000 (≥$3,000 High) to a beneficiary unseen in 90 days; weight up if ≥3 new beneficiaries in 7 days | customer × beneficiary / 90 days | Cross-border = international wire; domestic wires from fixtures | Behavioural_Change_1 394, Fan_Out and Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget. Debasish's #2 pain point |
-| | R11 | P2P anomaly | P2P ≥$2,500/day; or ≥10 distinct P2P counterparties in 7 days; or ≥5× 90-day baseline; tighter on small accounts | customer / 1, 7, 90 days | Debit-card rows < $1,000 between personal accounts → P2P p=0.3, label-blind, seeded | Fan_Out / Scatter-Gather debit (weak); ~10 injected | Measure in C1; budget ≤30 | Live if under budget. Debasish's #3 pain point; rail disclosed as synthetic |
+| | R11 | P2P anomaly | P2P ≥$2,500/day; or ≥10 distinct P2P counterparties in 7 days; or ≥5× 90-day baseline; tighter on small accounts | customer / 1, 7, 90 days | Debit-card rows < $1,000 between personal accounts → P2P p=0.3, label-blind, seeded | Fan_Out / Scatter-Gather debit (weak); ~10 injected | Measure in C1; budget ≤30 | **Shadow (P3)**: client says P2P is last and may be absent from the export; demo rail is synthetic |
 
 Why this grouping: each process shares a data shape (cash rows; per-account history; inbound-outbound flows; counterparty attributes), so each owner writes one set of helper views and one evidence panel style. Debasish's three pain points land one each on Abdul (R5), Natalie (R9, R11), which spreads the demo weight.
 
@@ -171,7 +173,8 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | `rule_version` | id, rule_id, version, mode, params JSON, weight, red_flag_ids, profile (default/seasonal), effective_from, effective_to, proposed_by, approved_by, reason |
 | `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, matched_txn_ids, computed_values JSON |
 | `alert` | id, customer_id, business_day, score, status, assigned_to, risk_tier_at_fire, created_at |
-| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named |
+| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day) so hourly reruns upsert |
+| `rejected_entry` | id, load_batch_id, source, raw_row JSON, reason, created_at (client: bad rows are set aside with a reason, never dropped) |
 | `agent_draft` | id, alert_id, model, prompt_hash, evidence_pack JSON, output, created_by, created_at |
 | `country_risk` | country, tier, source, effective_from, effective_to |
 
@@ -197,7 +200,7 @@ All sources map once into the **camt.054-entry-shaped canonical record** defined
 SAML-D payment types map to triplets as: Cash Deposit → `PMNT/CNTR/CDPT`; Cash Withdrawal → `PMNT/CNTR/CWDL` (or `PMNT/CCRD/CWDL` when the US layer assigns ATM); ACH → `PMNT/ICDT|RCDT/ATXN` with `btc_proprietary` = a seeded SEC code; Cross-border → `PMNT/ICDT|RCDT/XBCT`; Cheque → `PMNT/ICHQ|RCHQ/CCHQ`; Credit/Debit card → `PMNT/CCRD/POSC|POSD`; the synthetic P2P share → `PMNT/ICDT|RCDT/DMCT` with `btc_proprietary` = `ZELLE` (there is no P2P sub-family in the standard, which is also how banks code it today).
 
 ## D3. The US layer on SAML-D (owner: Abdul, ~3–4 person-days)
-Currency 1:1 USD · customers: one account = one customer, plus a disclosed label-blind 10% sample grouped into 2–3-account customers · KYC tier 80/15/5 seeded · open date = first-seen after 90-day warm-up · US federal holidays 2022–2023 · branches from FDIC SOD renamed, home branch ~80%, label-blind · channels (ATM p=0.7 on withdrawals ≤$1,000; night-drop share on deposits) · P2P relabel p=0.3 on debit < $1,000 between personal accounts · demo subsample of 100,000 accounts keeping all labelled accounts · typology injection with `answer_key.json` (each rule owner writes the injector for their own rules against a shared injector interface).
+Currency 1:1 USD · customers: one account = one customer, plus a disclosed label-blind 10% sample grouped into 2–3-account customers · KYC tier 80/15/5 seeded and shown next to every flag (KYC lives in the core; we do not re-verify or screen) · open date = first-seen after 90-day warm-up · US federal holidays 2022–2023 · branches from FDIC SOD renamed, home branch ~80%, label-blind · channels (ATM p=0.7 on withdrawals ≤$1,000; night-drop share on deposits) · P2P relabel p=0.3 on debit < $1,000 between personal accounts · demo subsample of about 300,000 accounts keeping all labelled accounts, so that daily rows land near the client's "tens of thousands, tops" (assumption, documented) · typology injection with `answer_key.json` (each rule owner writes the injector for their own rules against a shared injector interface).
 
 ## D4. Reference data
 OFAC SDN + Consolidated CSV (public domain) [S58][S59]; OpenSanctions `us_sanctions`, `peps`, `us_fincen_special_measures` (CC BY-NC, class use only) [S64]; FATF point-in-time JSON (black: DPRK, Iran, Myanmar; grey with effective dates: Turkey Oct 2021–Jun 2024, UAE Mar 2022–Feb 2024, Nigeria Feb 2023–Oct 2025, Albania Feb 2020–Oct 2023, Morocco Feb 2021–Feb 2023, Pakistan Jun 2018–Oct 21 2022 — **verify each date in a browser**) [S61]; FDIC SOD; pandas holiday calendar.
@@ -274,7 +277,7 @@ SAML-D CC BY-NC-SA: coursework qualifies; **no rows in the repo**. Tide CC BY 4.
 
 Deviations from the standard are exactly four (`business_date`, `conductor`, `risk_tier` family, `source_message`), each with a documented landing zone, so a genuine camt.054 export of our entries is possible if an auditor or a vendor asks for one. This is the answer to "can this even be done": the per-rail schemas stay different at the edge, one adapter each; the rules, the UI, the audit trail and the agent see one standard-shaped record.
 
-**Consequences for the build:** `category` becomes the BTC triplet everywhere (rules filter on `btc_family IN ('CNTR','CCRD')` for cash, on `btc_subfamily = 'XBCT'` for cross-border, on `btc_proprietary = 'ZELLE'` for P2P); the tran-code map in `data/reference/` maps core codes → triplets; `data/reference/iso20022/` holds the downloaded external code sets, BTC codification and the camt.054 XSD; `screener export --format camt054` is a stretch ticket (TRA-53). Nothing in the rules changes except column names.
+**Consequences for the build:** `category` becomes the BTC triplet everywhere (rules filter on `btc_family IN ('CNTR','CCRD')` for cash, on `btc_subfamily = 'XBCT'` for cross-border, on `btc_proprietary = 'ZELLE'` for P2P); the tran-code map in `data/reference/` maps core codes → triplets; `data/reference/iso20022/` holds the downloaded external code sets, BTC codification and the camt.054 XSD; `screener export --format camt054` is a stretch ticket (TRA-48). Nothing in the rules changes except column names.
 
 ## D7. Dataset and reference-data availability register (every item checked 2026-11-11)
 
@@ -323,7 +326,7 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 | Operational store | **PostgreSQL 16** (Docker) for alerts, dispositions, users, audit, rule versions, agent drafts; SQLite for unit tests | revoke UPDATE/DELETE on `audit_log`; the enterprise story |
 | Web | **Django 5 + HTMX + Tailwind (CDN)** — decided; the kickoff's "admin console to change thresholds and add rules without recoding" is Django admin plus maker-checker | auth, roles, ORM, migrations, admin, CSRF, autoescaping, `django-simple-history` built in |
 | Agent | Anthropic Python SDK behind a small `LLMClient` interface; provider and credentials from environment; deterministic stub for tests and CI | bank's own credentials; no vendor lock |
-| Background | `screener` CLI via `docker compose run` / cron | nightly batch |
+| Background | `screener` CLI via `docker compose run` / cron | hourly incremental run (`--since`) plus nightly reconciliation (`--reconcile`), per the client's reply |
 | Proxy / TLS | Caddy | two-line config |
 | CI | GitHub Actions (E5) | |
 | Observability | structured JSON logs; `run` manifest; `/healthz` | |
@@ -365,7 +368,7 @@ Django + HTMX + Tailwind. Reasons: the client asked for an admin console for thr
 
 **Repository.** GitHub repo `transaction-alert-screener` (public, per the assignment's "public repository URL"). Default branch `main`, protected: pull request required, one approval from a CODEOWNER of the touched paths, all required checks green, linear history (squash merge), no force-push, conversation resolution required. `CODEOWNERS` maps `rules/r01_*`, `rules/r02_*`, `rules/r03_*`, `screener/audit*`, `.github/`, `Dockerfile`, `docker-compose*.yml` → Vedant; `rules/r04_*`, `r07_*`, `r08_*`, `screener/engine*`, `screener/consolidate*`, `screener/scoring*` → Vedanshu; `rules/r05_*`, `r10_*`, `r12_*`, `screener/adapters/`, `screener/us_layer/`, `screener/evaluate*` → Abdul; `rules/r06_*`, `r09_*`, `r11_*`, `app/` → Natalie; `docs/` → anyone, one approval.
 
-**Branches and commits.** Branch per Linear issue, named by Linear's suggested format `vedant/tra-12-ctr-candidate-rule`, so Linear auto-links and moves the issue to In Progress on first push and to Done on merge. Conventional Commits (`feat(r02): add 30-day structuring variant`), PR title prefixed with the issue key (`TRA-16: …`). PRs under ~400 lines; one issue per PR. PR template: What / Why / How tested / Screenshots for UI / Checklist (tests added, docs updated, no data committed, rule.yaml version bumped if params changed). Draft PRs early.
+**Branches and commits.** Branch per Linear issue, named by Linear's suggested format `vedant/tra-12-ctr-candidate-rule`, so Linear auto-links and moves the issue to In Progress on first push and to Done on merge. Conventional Commits (`feat(r02): add 30-day structuring variant`), PR title prefixed with the issue key (`TRA-12: …`). PRs under ~400 lines; one issue per PR. PR template: What / Why / How tested / Screenshots for UI / Checklist (tests added, docs updated, no data committed, rule.yaml version bumped if params changed). Draft PRs early.
 
 **Pre-commit** (runs locally and as a CI job): `ruff` lint + format, `check-added-large-files --maxkb=1024`, `check-yaml`, `end-of-file-fixer`, `gitleaks` for secrets, `hadolint` for the Dockerfile.
 
@@ -382,7 +385,7 @@ Django + HTMX + Tailwind. Reasons: the client asked for an admin console for thr
 - `dependabot.yml`: weekly updates for GitHub Actions, Docker base images and Python (uv lockfile), grouped.
 - Concurrency groups cancel superseded runs on the same PR; all jobs pinned to action SHAs.
 
-**Docker.** Multi-stage `Dockerfile` (uv builder → slim runtime, non-root user, `HEALTHCHECK` on `/healthz`). `docker-compose.yml`: `app` (gunicorn), `scheduler` (runs `screener run` nightly via `supercronic`), `db` (Postgres 16 with a named volume and an init script that creates the restricted app role), `caddy` (TLS). `docker-compose.ci.yml` overrides: no caddy, app on `localhost:8000`, deterministic LLM stub, ephemeral volumes. `docker-compose.demo.yml`: preloads the demo subsample. `make up / make test / make demo` wrap the common commands.
+**Docker.** Multi-stage `Dockerfile` (uv builder → slim runtime, non-root user, `HEALTHCHECK` on `/healthz`). `docker-compose.yml`: `app` (gunicorn), `scheduler` (runs `screener run --since last` hourly and `--reconcile` nightly via `supercronic`), `db` (Postgres 16 with a named volume and an init script that creates the restricted app role), `caddy` (TLS). `docker-compose.ci.yml` overrides: no caddy, app on `localhost:8000`, deterministic LLM stub, ephemeral volumes. `docker-compose.demo.yml`: preloads the demo subsample. `make up / make test / make demo` wrap the common commands.
 
 **Environments.** `dev` (compose on a laptop, SQLite optional), `ci` (compose.ci), `demo` (compose.demo on one VM or a laptop for the client walkthrough), `bank` (compose behind the bank's proxy with their LLM credentials; documented, not provisioned by us).
 
@@ -435,86 +438,86 @@ Estimates in points. "Dep" = blocked by. Cycle C1 = this week, C2 = next, C3 = t
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-5 | Repo scaffold, uv project, pre-commit, PR template, CODEOWNERS | 3 | C1 day 0 | — | Context: nothing exists; four people start tomorrow. Scope: tree in F4; `pyproject.toml` with pinned 3.13; `.pre-commit-config.yaml` (ruff, large-file block 1 MB, gitleaks, hadolint); `.gitignore` for data; PR template; CODEOWNERS per F1; MIT licence; README skeleton with ownership table and meeting-notes section. AC: `uv sync` and `pre-commit run --all-files` pass on a clean clone; `git log` shows one initial commit; branch protection on `main` configured as in E5. Evidence: screenshot of branch-protection settings. |
-| TRA-6 | Day-0 contracts: camt.054-shaped canonical entry schema, BankTransactionCode taxonomy, fixture Parquet, rule/evidence/injector/explain contracts | 5 | C1 day 0 | TRA-5 | Context: these contracts are what let four slices proceed in parallel, and the canonical record follows ISO 20022 camt.054 so the bank's real rails can be adapted later without touching rules (D6). Scope: `screener/schema.py` (pyarrow schema for the 26 fields in D6), `screener/btc.py` loading the ISO BankTransactionCode codification and validating triplets, `screener fixtures` generating a 2,000-row synthetic Parquet covering every triplet and channel we use, `docs/05-architecture.md` contract section with the field-to-XPath table, `tests/test_contracts.py` validating any `rules/*/rule.yaml` against a JSON schema, checking `rule.sql` returns the five hit columns on the fixture Parquet, and rejecting any entry whose triplet is not in the codification. AC: `rules/r00_example/` passes; fixture Parquet committed and under 1 MB; every fixture triplet validates. Label `contract`. |
-| TRA-7 | GitHub Actions `ci.yml`: lint, unit, integration (Postgres service), rules | 3 | C1 | TRA-5 | Scope per E5 jobs 1–4, concurrency groups, SHA-pinned actions, coverage artifact. AC: a PR with a deliberate ruff error fails `lint`; a PR with a failing fixture test fails `rules`; green on `main`. |
-| TRA-8 | Dockerfile, docker-compose (app, scheduler, db, caddy), compose.ci, compose.demo, Makefile | 5 | C1 | TRA-5 | Scope: multi-stage uv image, non-root, HEALTHCHECK; Postgres init script creating the restricted `app` role without UPDATE/DELETE on `audit_log`; supercronic scheduler; Caddyfile. AC: `make up` serves `/healthz` 200 locally; `docker compose run app screener --help` works; image under 400 MB. |
-| TRA-9 | CI `docker` job: build with cache, compose up, healthz, fixture run, alert-count assertion, trivy | 3 | C1 | TRA-7, TRA-8 | Scope per E5 job 5–6. AC: the job fails if `/healthz` never returns 200 within 60s or if the fixture run yields zero alerts; trivy fails on critical CVEs; logs are uploaded on failure. |
-| TRA-10 | `publish.yml`: push image to GHCR on main and tags; GitHub Release on `v*`; dependabot | 2 | C2 | TRA-9 | AC: `ghcr.io/<org>/transaction-alert-screener:main` exists after merge; `v0.1.0` tag creates a release with notes and `:latest`. |
-| TRA-11 | Audit log module: append-only writer, hash chain, `audit.record()` helper, access logging middleware | 3 | C1 | TRA-6 | Context: C9 and the Blue Ridge checklist. Scope: `screener/audit.py`, Django model, middleware logging Auditor views and any SAR-status view. AC: integration test proves the app role cannot UPDATE/DELETE; chain verifies; every write path in the app calls `audit.record()` (grep test). |
-| TRA-12 | Audit export: CSV + printable HTML for a date range or a customer, including rule versions in force and agent drafts | 3 | C2 | TRA-11, TRA-35 | AC: export for July 2023 on the demo subsample opens in Excel; printable view renders without JS; export action itself is audited. |
-| TRA-13 | Reference data loader: holidays, FDIC branches (NJ, $1–5B banks, verified API), country_risk point-in-time table, tran-code → BankTransactionCode map; `fetch_lists.sh` for OFAC, UN, OpenSanctions and the ISO 20022 code sets, BTC codification and camt.054 XSD (all URLs in D7) | 3 | C1 | TRA-6 | AC: `screener refdata load` populates tables; `fetch_lists.sh` downloads every D7 asset with a checksum log; `country_risk` lookups by date return Turkey as grey on 2023-03-01 and normal on 2026-11-11; every FATF date row has a `verified_on` and a source URL; every tran-code map row resolves to a valid triplet. |
-| TRA-53 | Stretch: `screener export --format camt054` producing a schema-valid camt.054.001.13 XML for a date range (business_date in `RltdDts/Prtry`, source in `SplmtryData`) | 3 | C3 or later | TRA-6 | Context: proves the "standard format" claim to the client and gives vendors a bake-off input. AC: output validates against the downloaded XSD; round-trip test reads it back into the canonical schema with no field loss. |
-| TRA-14 | Demo environment: compose.demo preloads the 100k-account subsample, seeded users for three roles, demo day 2023-07-14 | 2 | C3 | TRA-8, TRA-24 | AC: `make demo` on a clean machine reaches a populated queue in under 10 minutes; passwords only in `.env.example` with a warning. |
+| TRA-1 | Repo scaffold, uv project, pre-commit, PR template, CODEOWNERS | 3 | C1 day 0 | — | Context: nothing exists; four people start tomorrow. Scope: tree in F4; `pyproject.toml` with pinned 3.13; `.pre-commit-config.yaml` (ruff, large-file block 1 MB, gitleaks, hadolint); `.gitignore` for data; PR template; CODEOWNERS per F1; MIT licence; README skeleton with ownership table and meeting-notes section. AC: `uv sync` and `pre-commit run --all-files` pass on a clean clone; `git log` shows one initial commit; branch protection on `main` configured as in E5. Evidence: screenshot of branch-protection settings. |
+| TRA-2 | Day-0 contracts: camt.054-shaped canonical entry schema, BankTransactionCode taxonomy, fixture Parquet, rule/evidence/injector/explain contracts | 5 | C1 day 0 | TRA-1 | Context: these contracts are what let four slices proceed in parallel, and the canonical record follows ISO 20022 camt.054 so the bank's real rails can be adapted later without touching rules (D6). Scope: `screener/schema.py` (pyarrow schema for the 26 fields in D6), `screener/btc.py` loading the ISO BankTransactionCode codification and validating triplets, `screener fixtures` generating a 2,000-row synthetic Parquet covering every triplet and channel we use, `docs/05-architecture.md` contract section with the field-to-XPath table, `tests/test_contracts.py` validating any `rules/*/rule.yaml` against a JSON schema, checking `rule.sql` returns the five hit columns on the fixture Parquet, and rejecting any entry whose triplet is not in the codification. AC: `rules/r00_example/` passes; fixture Parquet committed and under 1 MB; every fixture triplet validates. Label `contract`. |
+| TRA-3 | GitHub Actions `ci.yml`: lint, unit, integration (Postgres service), rules | 3 | C1 | TRA-1 | Scope per E5 jobs 1–4, concurrency groups, SHA-pinned actions, coverage artifact. AC: a PR with a deliberate ruff error fails `lint`; a PR with a failing fixture test fails `rules`; green on `main`. |
+| TRA-4 | Dockerfile, docker-compose (app, scheduler, db, caddy), compose.ci, compose.demo, Makefile | 5 | C1 | TRA-1 | Scope: multi-stage uv image, non-root, HEALTHCHECK; Postgres init script creating the restricted `app` role without UPDATE/DELETE on `audit_log`; supercronic scheduler; Caddyfile. AC: `make up` serves `/healthz` 200 locally; `docker compose run app screener --help` works; image under 400 MB. |
+| TRA-5 | CI `docker` job: build with cache, compose up, healthz, fixture run, alert-count assertion, trivy | 3 | C1 | TRA-3, TRA-4 | Scope per E5 job 5–6. AC: the job fails if `/healthz` never returns 200 within 60s or if the fixture run yields zero alerts; trivy fails on critical CVEs; logs are uploaded on failure. |
+| TRA-6 | `publish.yml`: push image to GHCR on main and tags; GitHub Release on `v*`; dependabot | 2 | C2 | TRA-5 | AC: `ghcr.io/<org>/transaction-alert-screener:main` exists after merge; `v0.1.0` tag creates a release with notes and `:latest`. |
+| TRA-7 | Audit log module: append-only writer, hash chain, `audit.record()` helper, access logging middleware | 3 | C1 | TRA-2 | Context: C9 and the Blue Ridge checklist. Scope: `screener/audit.py`, Django model, middleware logging Auditor views and any SAR-status view. AC: integration test proves the app role cannot UPDATE/DELETE; chain verifies; every write path in the app calls `audit.record()` (grep test). |
+| TRA-8 | Audit export: CSV + printable HTML for a date range or a customer, including rule versions in force and agent drafts | 3 | C2 | TRA-7, TRA-31 | AC: export for July 2023 on the demo subsample opens in Excel; printable view renders without JS; export action itself is audited. |
+| TRA-9 | Reference data loader: holidays, FDIC branches (NJ, $1–5B banks, verified API), country_risk point-in-time table, tran-code → BankTransactionCode map; `fetch_lists.sh` for OFAC, UN, OpenSanctions and the ISO 20022 code sets, BTC codification and camt.054 XSD (all URLs in D7) | 3 | C1 | TRA-2 | AC: `screener refdata load` populates tables; `fetch_lists.sh` downloads every D7 asset with a checksum log; `country_risk` lookups by date return Turkey as grey on 2023-03-01 and normal on 2026-11-11; every FATF date row has a `verified_on` and a source URL; every tran-code map row resolves to a valid triplet. |
+| TRA-48 | Stretch: `screener export --format camt054` producing a schema-valid camt.054.001.13 XML for a date range (business_date in `RltdDts/Prtry`, source in `SplmtryData`) | 3 | C3 or later | TRA-2 | Context: proves the "standard format" claim to the client and gives vendors a bake-off input. AC: output validates against the downloaded XSD; round-trip test reads it back into the canonical schema with no field loss. |
+| TRA-10 | Demo environment: compose.demo preloads the 100k-account subsample, seeded users for three roles, demo day 2023-07-14 | 2 | C3 | TRA-4, TRA-20 | AC: `make demo` on a clean machine reaches a populated queue in under 10 minutes; passwords only in `.env.example` with a warning. |
 
 ### P1 Cash & CTR (Vedant)
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-15 | R1 CTR candidate rule, fixtures, tests | 3 | C1 | TRA-6 | Scope: `rules/r01_ctr/` with `rule.yaml`, `rule.sql` (per-customer per-business-day cash-in and cash-out totals, separately, never netted), `inject.py` (5 CTR days), tests for $10,000.00 vs $10,000.01, two accounts one customer, two branches, Friday→Monday and holiday roll-forward. AC: all fixture tests pass; writes to `ctr_candidate`, not `hit`. |
-| TRA-16 | R2 multi-day structuring rule (variants a and b), fixtures, injector | 3 | C1 | TRA-6 | AC: fixtures pass; on SAML-D reproduces 40 accounts / 90% precision / 57% recall for (a) and 15 / 100% / 24% for (b) (after TRA-24). |
-| TRA-17 | R3 same-day / cross-branch structuring rule, fixtures, injector | 2 | C1 | TRA-6 | AC: ~10 injected cases recalled ≥0.9; natural volume reported as ~0 in docs/09. |
-| TRA-18 | Evidence panels r01–r03 and the CTR candidates page | 3 | C2 | TRA-34 | Scope: `evidence.html` for each rule showing deposits by day and branch with the threshold line; CTR page with reconcile status. AC: renders from the fixture run; a hostile memo renders as text; screenshot in PR. |
-| TRA-19 | `explain.py` for r01–r03 (agent evidence items) | 1 | C2 | TRA-45 | AC: returns cited items; unit test with the stub LLM. |
-| TRA-20 | Measure R1–R3 on SAML-D; write volumes, precision, recall, lift to docs/09; set modes and budgets | 2 | C2 | TRA-24 | AC: numbers in docs/09 with the command that produced them; `rule.yaml` modes set. |
+| TRA-11 | R1 CTR candidate rule, fixtures, tests | 3 | C1 | TRA-2 | Scope: `rules/r01_ctr/` with `rule.yaml`, `rule.sql` (per-customer per-business-day cash-in and cash-out totals, separately, never netted), `inject.py` (5 CTR days), tests for $10,000.00 vs $10,000.01, two accounts one customer, two branches, Friday→Monday and holiday roll-forward. AC: all fixture tests pass; writes to `ctr_candidate`, not `hit`. |
+| TRA-12 | R2 multi-day structuring rule (variants a and b), fixtures, injector | 3 | C1 | TRA-2 | AC: fixtures pass; on SAML-D reproduces 40 accounts / 90% precision / 57% recall for (a) and 15 / 100% / 24% for (b) (after TRA-20). |
+| TRA-13 | R3 same-day / cross-branch structuring rule, fixtures, injector | 2 | C1 | TRA-2 | AC: ~10 injected cases recalled ≥0.9; natural volume reported as ~0 in docs/09. |
+| TRA-14 | Evidence panels r01–r03 and the CTR candidates page | 3 | C2 | TRA-30 | Scope: `evidence.html` for each rule showing deposits by day and branch with the threshold line; CTR page with reconcile status. AC: renders from the fixture run; a hostile memo renders as text; screenshot in PR. |
+| TRA-15 | `explain.py` for r01–r03 (agent evidence items) | 1 | C2 | TRA-40 | AC: returns cited items; unit test with the stub LLM. |
+| TRA-16 | Measure R1–R3 on SAML-D; write volumes, precision, recall, lift to docs/09; set modes and budgets | 2 | C2 | TRA-20 | AC: numbers in docs/09 with the command that produced them; `rule.yaml` modes set. |
 
 ### P2 Account Behaviour (Vedanshu)
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-21 | Rules engine core: folder loader, YAML schema, Jinja parameter rendering, DuckDB execution, `run --day`, run manifest | 5 | C1 | TRA-6 | Context: every slice depends on this; it ships against the fixture Parquet first. Scope: `screener/engine.py`, `screener/cli.py run`, `run` table. AC: `screener run --day` executes every `live` and `shadow` rule folder and writes hits with rule-version IDs; adding a new folder needs no code change (test adds `r99_tmp`). Label `contract`. |
-| TRA-22 | Consolidation and scoring: hits → one alert per customer-day; priority score; CTR routing | 3 | C1 | TRA-21 | AC: two hits → one alert with both attached; cascade on close covered by a test; score formula in C8 with a unit test. |
-| TRA-23 | Backtest: `screener backtest --rule --version --from --to` and the backtest page (counts per version, delta) | 3 | C2 | TRA-21, TRA-34 | AC: backtest of R4 at 180/120/365 days over May–Aug produces a table and a chart on the page; results stored with the proposed rule version so maker-checker can see them. |
-| TRA-25 | R4 dormant reactivation rule, fixtures (179 vs 180 days), injector | 3 | C1 | TRA-6 | AC: fixtures pass; on SAML-D reproduces ~3,730 events; ~15 injected cases recalled ≥0.9. |
-| TRA-26 | R7 new-account burst rule, fixtures, injector | 3 | C1 | TRA-6 | AC: fixtures pass; measured volume and budget decision in docs/09. |
-| TRA-27 | R8 ATM anomaly rule (count, value vs baseline, multi-state), fixtures, injector | 3 | C1 | TRA-6 | AC: fixtures pass; relies on `channel` and ATM location from the US layer (TRA-30). |
-| TRA-28 | Customer page (account timeline, dormancy gaps, prior alerts) and evidence panels r04, r07, r08 | 3 | C2 | TRA-34 | AC: renders from the fixture run; screenshot in PR. |
-| TRA-29 | `explain.py` for r04, r07, r08; measure R4, R7, R8 on SAML-D into docs/09 | 2 | C2 | TRA-24, TRA-45 | AC: numbers and modes recorded; stub-LLM test passes. |
+| TRA-17 | Rules engine core: folder loader, YAML schema, Jinja parameter rendering, DuckDB execution, `run --day`, run manifest | 5 | C1 | TRA-2 | Context: every slice depends on this; it ships against the fixture Parquet first. Scope: `screener/engine.py`, `screener/cli.py run`, `run` table. AC: `screener run --day` executes every `live` and `shadow` rule folder and writes hits with rule-version IDs; adding a new folder needs no code change (test adds `r99_tmp`). Label `contract`. |
+| TRA-18 | Consolidation and scoring: hits → one alert per customer-day; priority score; CTR routing | 3 | C1 | TRA-17 | AC: two hits → one alert with both attached; cascade on close covered by a test; score formula in C8 with a unit test. |
+| TRA-19 | Backtest: `screener backtest --rule --version --from --to` and the backtest page (counts per version, delta) | 3 | C2 | TRA-17, TRA-30 | AC: backtest of R4 at 180/120/365 days over May–Aug produces a table and a chart on the page; results stored with the proposed rule version so maker-checker can see them. |
+| TRA-21 | R4 dormant reactivation rule, fixtures (179 vs 180 days), injector | 3 | C1 | TRA-2 | AC: fixtures pass; on SAML-D reproduces ~3,730 events; ~15 injected cases recalled ≥0.9. |
+| TRA-22 | R7 new-account burst rule, fixtures, injector | 3 | C1 | TRA-2 | AC: fixtures pass; measured volume and budget decision in docs/09. |
+| TRA-23 | R8 ATM anomaly rule (count, value vs baseline, multi-state), fixtures, injector | 3 | C1 | TRA-2 | AC: fixtures pass; relies on `channel` and ATM location from the US layer (TRA-26). |
+| TRA-24 | Customer page (account timeline, dormancy gaps, prior alerts) and evidence panels r04, r07, r08 | 3 | C2 | TRA-30 | AC: renders from the fixture run; screenshot in PR. |
+| TRA-25 | `explain.py` for r04, r07, r08; measure R4, R7, R8 on SAML-D into docs/09 | 2 | C2 | TRA-20, TRA-40 | AC: numbers and modes recorded; stub-LLM test passes. |
 
 ### P3 Funds Movement (Abdul)
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-24 | SAML-D adapter → canonical Parquet (cash orientation: depositor = sender, withdrawer = receiver; string account IDs; 1:1 USD) with reconciliation report | 3 | C1 | TRA-6 | AC: 9,504,852 rows in, row count and Σ amounts reconcile; `load_batch` row written; runtime under 3 minutes on the laptop. |
-| TRA-30 | US layer: customers (label-blind 10% grouping), KYC tiers, open dates, branches, channels, P2P relabel, holidays; injector framework calling each rule's `inject.py`; `answer_key.json` | 5 | C1 | TRA-24, TRA-13 | AC: every assignment uses the seeded RNG and never reads labels (test asserts no label column is referenced); answer key lists every injected case with rule id; docs/04 describes each proxy. Label `contract`. |
-| TRA-31 | Demo subsample (100k accounts, all labelled accounts kept) and Tide adapter (optional, R5 benchmark) | 2 | C2 | TRA-30 | AC: subsample Parquet reproducible from seed; Tide adapter runs R5 and reports the 22.5% / 66% benchmark. |
-| TRA-40 | Evaluation harness: `screener evaluate` (precision, recall, lift per rule on labels + answer key, chronological split) and the evaluation page | 3 | C2 | TRA-21, TRA-30 | AC: writes `docs/09-evaluation.md` tables from a command; page shows per-rule volume vs budget with live/shadow badge. |
-| TRA-33 | R5 rapid pass-through rule with baseline condition, fixtures (71 vs 73 hours), injector; tuning record | 5 | C1–C2 | TRA-6 | Context: Debasish's first pain point and the flood example. AC: as-written and tightened volumes both recorded; ships in shadow unless ≤50/month; tuning steps documented as the demo narrative. |
-| TRA-36 | R10 round-dollar rule, fixtures, injector | 2 | C1 | TRA-6 | AC: ~10 injected cases recalled; natural volume ~0 recorded. |
-| TRA-37 | R12 transfer splitting rule (pair-keyed and funnel variant with new-sender condition), fixtures, injector | 3 | C1 | TRA-6 | AC: variant (b) catches the 75 "Structuring" receivers at a volume under budget, or ships in shadow with the measurement recorded. |
-| TRA-38 | Funds-flow view and evidence panels r05, r10, r12; `explain.py` for the three | 3 | C2 | TRA-34, TRA-45 | AC: in/out within window drawn as a small table and timeline; renders from the fixture run. |
+| TRA-20 | SAML-D adapter → canonical Parquet (cash orientation: depositor = sender, withdrawer = receiver; string account IDs; 1:1 USD) with reconciliation report | 3 | C1 | TRA-2 | AC: 9,504,852 rows in, row count and Σ amounts reconcile; `load_batch` row written; runtime under 3 minutes on the laptop. |
+| TRA-26 | US layer: customers (label-blind 10% grouping), KYC tiers, open dates, branches, channels, P2P relabel, holidays; injector framework calling each rule's `inject.py`; `answer_key.json` | 5 | C1 | TRA-20, TRA-9 | AC: every assignment uses the seeded RNG and never reads labels (test asserts no label column is referenced); answer key lists every injected case with rule id; docs/04 describes each proxy. Label `contract`. |
+| TRA-27 | Demo subsample (100k accounts, all labelled accounts kept) and Tide adapter (optional, R5 benchmark) | 2 | C2 | TRA-26 | AC: subsample Parquet reproducible from seed; Tide adapter runs R5 and reports the 22.5% / 66% benchmark. |
+| TRA-28 | Evaluation harness: `screener evaluate` (precision, recall, lift per rule on labels + answer key, chronological split) and the evaluation page | 3 | C2 | TRA-17, TRA-26 | AC: writes `docs/09-evaluation.md` tables from a command; page shows per-rule volume vs budget with live/shadow badge. |
+| TRA-29 | R5 rapid pass-through rule with baseline condition, fixtures (71 vs 73 hours), injector; tuning record | 5 | C1–C2 | TRA-2 | Context: Debasish's first pain point and the flood example. AC: as-written and tightened volumes both recorded; ships in shadow unless ≤50/month; tuning steps documented as the demo narrative. |
+| TRA-32 | R10 round-dollar rule, fixtures, injector | 2 | C1 | TRA-2 | AC: ~10 injected cases recalled; natural volume ~0 recorded. |
+| TRA-33 | R12 transfer splitting rule (pair-keyed and funnel variant with new-sender condition), fixtures, injector | 3 | C1 | TRA-2 | AC: variant (b) catches the 75 "Structuring" receivers at a volume under budget, or ships in shadow with the measurement recorded. |
+| TRA-34 | Funds-flow view and evidence panels r05, r10, r12; `explain.py` for the three | 3 | C2 | TRA-30, TRA-40 | AC: in/out within window drawn as a small table and timeline; renders from the fixture run. |
 
 ### P4 Counterparty & Rails (Natalie)
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-34 | Django app skeleton: project, `accounts` (three roles, login), `alerts` models mirroring the data model, migrations, queue page, alert detail shell including evidence partials by rule id, `/healthz`, Tailwind | 5 | C1 | TRA-5 | Context: every UI ticket depends on this; ship the shell against the fixture run first. AC: login as each role; queue sorted by score then age with aging badges; alert page includes `rules/<id>/evidence.html` for each hit; autoescaping test with a hostile memo. Label `contract`. |
-| TRA-35 | Disposition state machine, reason codes, notes, four-eyes, SAR clock, suppression | 5 | C1–C2 | TRA-34, TRA-11 | AC: every transition in C3 tested, illegal ones rejected; analyst cannot self-approve; SAR status hidden from Analyst role; every change calls `audit.record()`. |
-| TRA-39 | Admin console: rule versions with maker-checker, seasonal profiles, mode switch, red-flag catalogue; `django-simple-history` | 5 | C2 | TRA-34, TRA-21 | Context: Debasish's "change thresholds and add rules without recoding". AC: a proposed change needs a different BSA officer to approve; the backtest result (TRA-23) is visible on the proposal; approved versions take effect on the next run only. |
-| TRA-41 | R6 high-risk jurisdiction rule with point-in-time lists, fixtures, injector | 3 | C1 | TRA-6, TRA-13 | AC: fixture with a Turkey wire in 2023 fires and the same wire dated 2026 does not; measured volume and budget decision recorded. |
-| TRA-42 | R9 wire to new beneficiary rule, fixtures (90-day lookback edge), injector | 3 | C1 | TRA-6 | AC: fixtures pass; domestic-wire fixtures included; measured volume recorded. |
-| TRA-43 | R11 P2P anomaly rule (value, count, baseline, small-account tightening), fixtures, injector | 3 | C1 | TRA-6 | AC: fixtures pass; rail disclosed as synthetic in docs/04; measured volume recorded. |
-| TRA-44 | Counterparty/country panel and evidence panels r06, r09, r11; `explain.py` for the three | 3 | C2 | TRA-34, TRA-45 | AC: panel shows country tier in force on the transaction date with its source. |
+| TRA-30 | Django app skeleton: project, `accounts` (three roles, login), `alerts` models mirroring the data model, migrations, queue page, alert detail shell including evidence partials by rule id, `/healthz`, Tailwind | 5 | C1 | TRA-1 | Context: every UI ticket depends on this; ship the shell against the fixture run first. AC: login as each role; queue sorted by score then age with aging badges; alert page includes `rules/<id>/evidence.html` for each hit; autoescaping test with a hostile memo. Label `contract`. |
+| TRA-31 | Disposition state machine, reason codes, notes, four-eyes, SAR clock, suppression | 5 | C1–C2 | TRA-30, TRA-7 | AC: every transition in C3 tested, illegal ones rejected; analyst cannot self-approve; SAR status hidden from Analyst role; every change calls `audit.record()`. |
+| TRA-35 | Admin console: rule versions with maker-checker, seasonal profiles, mode switch, red-flag catalogue; `django-simple-history` | 5 | C2 | TRA-30, TRA-17 | Context: Debasish's "change thresholds and add rules without recoding". AC: a proposed change needs a different BSA officer to approve; the backtest result (TRA-19) is visible on the proposal; approved versions take effect on the next run only. |
+| TRA-36 | R6 high-risk jurisdiction rule with point-in-time lists, fixtures, injector | 3 | C1 | TRA-2, TRA-9 | AC: fixture with a Turkey wire in 2023 fires and the same wire dated 2026 does not; measured volume and budget decision recorded. |
+| TRA-37 | R9 wire to new beneficiary rule, fixtures (90-day lookback edge), injector | 3 | C1 | TRA-2 | AC: fixtures pass; domestic-wire fixtures included; measured volume recorded. |
+| TRA-38 | R11 P2P anomaly rule (value, count, baseline, small-account tightening), fixtures, injector | 3 | C1 | TRA-2 | AC: fixtures pass; rail disclosed as synthetic in docs/04; measured volume recorded. |
+| TRA-39 | Counterparty/country panel and evidence panels r06, r09, r11; `explain.py` for the three | 3 | C2 | TRA-30, TRA-40 | AC: panel shows country tier in force on the transaction date with its source. |
 
 ### P5 Investigator Agent (Vedant, with one ticket per owner)
 
 | Key | Title | Pts | Cycle | Dep | Description |
 |---|---|---|---|---|---|
-| TRA-45 | Agent harness: `LLMClient` interface (Anthropic SDK + deterministic stub), evidence-pack builder, redaction, prompt with citation format, `agent_draft` model, CLI `screener draft --alert` | 5 | C2 | TRA-22, TRA-11 | Context: the kickoff asked for an agentic harness on the bank's credentials; the thin slice must never decide. AC: stub works offline and in CI; real provider enabled only by env; memos are wrapped as quoted data; the draft never changes status; every call is audited with prompt hash and model. Label `contract`. |
-| TRA-46 | Agent draft panel on the alert page with "Draft" button, editable output, citations linking to evidence items | 3 | C2–C3 | TRA-45, TRA-34 | AC: Analyst and Officer can draft; Auditor can read; the draft is stored and exported with the alert (TRA-12). |
-| TRA-47 | Agent control set document: scope, redaction, logging, graduated autonomy, accuracy measurement plan | 2 | C3 | TRA-45 | AC: `docs/10-agent-controls.md` reviewed by all four; ties to SR 26-2's exclusion of agentic AI. |
+| TRA-40 | Agent harness: `LLMClient` interface (Anthropic SDK + deterministic stub), evidence-pack builder, redaction, prompt with citation format, `agent_draft` model, CLI `screener draft --alert` | 5 | C2 | TRA-18, TRA-7 | Context: the kickoff asked for an agentic harness on the bank's credentials; the thin slice must never decide. AC: stub works offline and in CI; real provider enabled only by env; memos are wrapped as quoted data; the draft never changes status; every call is audited with prompt hash and model. Label `contract`. |
+| TRA-41 | Agent draft panel on the alert page with "Draft" button, editable output, citations linking to evidence items | 3 | C2–C3 | TRA-40, TRA-30 | AC: Analyst and Officer can draft; Auditor can read; the draft is stored and exported with the alert (TRA-8). |
+| TRA-42 | Agent control set document: scope, redaction, logging, graduated autonomy, accuracy measurement plan | 2 | C3 | TRA-40 | AC: `docs/10-agent-controls.md` reviewed by all four; ties to SR 26-2's exclusion of agentic AI. |
 
 ### P6 Client & Docs (Vedant, sections by owner)
 
 | Key | Title | Pts | Cycle | Owner | Description |
 |---|---|---|---|---|---|
-| TRA-48 | Move research into `docs/` (glossary, client brief, regulations, rules catalogue skeleton, data plan, architecture with ADR-001, vendors and cost, friction, sources); delete duplicate scope file | 3 | C1 | Vedant | AC: every file in F4 `docs/` exists with content from this plan; README links them. |
-| TRA-49 | Rules catalogue sections for own rules (parameters, red-flag citations, measured numbers, caveats) | 1 each | C2 | each owner | AC: `docs/02-rules-catalogue.md` section per rule with the numbers from docs/09. |
-| TRA-50 | Demo script v2 (hybrid: rules, tuning, four-eyes, audit export, agent draft) and rehearsal checklist | 2 | C3 | Vedant | AC: runs end to end on `make demo` in under 12 minutes. |
-| TRA-51 | Leadership presentation outline for Coforge BFSI (early Jan 2027): business impact, cost of doing nothing, ROI model, architecture, roadmap, KPIs | 3 | C3 | Vedant | AC: outline reviewed by the team; no timeline estimates in client-facing text; every number tagged. |
-| TRA-52 | Written follow-up questions to the client (60-minute citation, ISO 20022 reference, asset size and regulator, LLM platform, fraud split by rail) | 1 | C1 | Vedant | AC: sent by email with Adam copied; answers logged in README meeting notes. |
+| TRA-43 | Move research into `docs/` (glossary, client brief, regulations, rules catalogue skeleton, data plan, architecture with ADR-001, vendors and cost, friction, sources); delete duplicate scope file | 3 | C1 | Vedant | AC: every file in F4 `docs/` exists with content from this plan; README links them. |
+| TRA-44 | Rules catalogue sections for own rules (parameters, red-flag citations, measured numbers, caveats) | 1 each | C2 | each owner | AC: `docs/02-rules-catalogue.md` section per rule with the numbers from docs/09. |
+| TRA-45 | Demo script v2 (hybrid: rules, tuning, four-eyes, audit export, agent draft) and rehearsal checklist | 2 | C3 | Vedant | AC: runs end to end on `make demo` in under 12 minutes. |
+| TRA-46 | Leadership presentation outline for Coforge BFSI (early Jan 2027): business impact, cost of doing nothing, ROI model, architecture, roadmap, KPIs | 3 | C3 | Vedant | AC: outline reviewed by the team; no timeline estimates in client-facing text; every number tagged. |
+| TRA-47 | Written follow-up questions to the client (60-minute citation, ISO 20022 reference, asset size and regulator, LLM platform, fraud split by rail) | 1 | C1 | Vedant | AC: sent by email with Adam copied; answers logged in README meeting notes. |
 
-**Dependency shape:** TRA-5 and TRA-6 (day 0) unblock every rule ticket; TRA-21 unblocks consolidation, backtest, evaluation and the admin console; TRA-34 unblocks every UI ticket; TRA-24/26 unblock the measurements; TRA-45 unblocks the explain tools. Everything else runs in parallel. The critical path is TRA-5 → TRA-6 → TRA-21 → TRA-22 → TRA-34 → TRA-35, all of C1, so Vedant does TRA-5/2 on day 0 while Vedanshu starts TRA-21 against the contract draft and Natalie starts TRA-34 against the fixture Parquet.
+**Dependency shape:** TRA-1 and TRA-2 (day 0) unblock every rule ticket; TRA-17 unblocks consolidation, backtest, evaluation and the admin console; TRA-30 unblocks every UI ticket; TRA-20/26 unblock the measurements; TRA-40 unblocks the explain tools. Everything else runs in parallel. The critical path is TRA-1 → TRA-2 → TRA-17 → TRA-18 → TRA-30 → TRA-31, all of C1, so Vedant does TRA-1/2 on day 0 while Vedanshu starts TRA-17 against the contract draft and Natalie starts TRA-30 against the fixture Parquet.
 
 **Points per owner (approx.):** Vedant 37 (platform-heavy, fewer rule points), Vedanshu 28, Abdul 29, Natalie 30. Cycle load C1 ≈ 60, C2 ≈ 50, C3 ≈ 15 plus tuning and polish.
 
@@ -567,21 +570,21 @@ transaction-alert-screener/
 
 | Cycle | Goal | Exit criteria |
 |---|---|---|
-| **C1 (Nov 11–17)** | Foundations and every rule green on fixtures | TRA-5/2 merged day 0; CI with Docker smoke green; all 12 rule folders pass fixture tests; SAML-D Parquet and US layer loaded; app shell with login, queue and alert detail renders the fixture run |
+| **C1 (Nov 11–17)** | Foundations and every rule green on fixtures | TRA-1/2 merged day 0; CI with Docker smoke green; all 12 rule folders pass fixture tests; SAML-D Parquet and US layer loaded; app shell with login, queue and alert detail renders the fixture run |
 | **C2 (Nov 18–24)** | Real data, UI integration, admin console, agent slice | Every rule measured on SAML-D with mode set; evidence panels for all 12; disposition, four-eyes, audit log and export; admin console with maker-checker and backtest; agent draft with stub and real provider behind env |
 | **C3 (Nov 25–Dec 1)** | Tuning, hardening, demo and leadership outline | Over-budget rules tuned or documented as shadow; evaluation page; demo environment; demo script rehearsed; `v0.1.0` released to GHCR; leadership presentation outline |
 | Dec–early Jan | Leadership presentation prep | Business-impact and ROI deck for Coforge BFSI |
 
 ## F6. Demo script v2 (hybrid, 12 minutes, "today" 2023-07-14)
 1. Problem in Debasish's words; regulatory frame; the audit-rebuild question.
-2. `screener load`: reconciliation report. `screener run`: queue with 12 rules and live/shadow badges.
+2. `screener load`: reconciliation report and the Quarantine page (rows set aside with a reason). `screener run --since`: the hourly incremental run adds to the queue without duplicating; 12 rules with live/shadow badges and the risk rating beside each alert.
 3. Open a pass-through alert (Debasish's pain point 1): funds-flow view, rule version, parameters, matched transactions, red-flag citation.
 4. Press Draft: the agent's "why flagged" and narrative starter with citations; edit it; show it is stored and logged, not acted on.
 5. Close a different alert with a reason; the audit log entry appears.
 6. Escalate as Analyst; approve as a different BSA Officer; show the self-approval block and the SAR clock.
 7. Admin console: propose dormant 180 → 120 days with a reason; backtest delta appears; a second officer approves; next run uses it.
 8. R5 in shadow: as-written flood vs tuned volume; the decision rule.
-9. Export the audit trail for July; open the CSV.
+9. Export the audit trail for July and the one-page summary for a single account (every flag it ever had: date, rule, amount, decision); open the CSV.
 10. Evaluation page: volume vs budget, precision, recall, lift per rule. Close with cost, friction, roadmap (streaming lane, screening, full agentic triage in a 90-day shadow pilot).
 
 ## F7. Verification
@@ -593,8 +596,8 @@ transaction-alert-screener/
 - Docs: every regulatory statement links to a primary source; every price tagged; FATF dates eyeballed; no timeline estimates in client-facing docs.
 
 ## F8. What happens on approval (in this order; this is the whole remaining scope of this session)
-1. **Linear.** Through the connector: add the `In Review` status; create the label groups and labels; create the seven projects with descriptions and milestones; create the issue template as a team document; create the 48 tickets (TRA-5 … TRA-53, where TRA-49 is one ticket per owner) with full template bodies, assignees (Vedant = veddev404@gmail.com, Natalie = natalie.king@coforge.com, Vedanshu = vedanshu.patel@coforge.com, Abdul = abdul.2.shaik@coforge.com), labels, estimates and blocked-by relations; mark TRA-5 and TRA-48 Done once step 2 lands. Cycles and estimates must be switched on by hand in team settings first; I will say so and proceed with the rest, and cycle assignment is then a two-minute drag in Linear.
-2. **Scaffold.** In the project folder: `git init`; the F4 tree with `pyproject.toml` (uv, Python 3.13 pin, dependency list), `.pre-commit-config.yaml`, `.gitignore`, `.gitattributes`, `.env.example`, `Makefile`, `CODEOWNERS`, PR template, `dependabot.yml`, `ci.yml` and `publish.yml`, `Dockerfile`, the three compose files and `Caddyfile`; `docs/` filled from this plan including `docs/PLAN.md` (this document), `docs/05-architecture.md` with the day-0 contract text and the field-to-XPath table, `docs/12-linear-workflow.md` with the working agreement and the exact `gh` commands for branch protection; `rules/_schema/rule.schema.json`, `rules/red_flags.yaml` seeded with the curated red flags, and `rules/r00_example/` with annotated placeholder `rule.yaml`, `rule.sql`, `inject.py`, `explain.py`, `evidence.html`, `test_rule.py`, `README.md`; the twelve empty rule folders each containing only a `README.md` naming the owner, the ticket and the contract; `data/reference/fetch_lists.sh` and `data/reference/README.md` with every D7 URL; `screener/` and `app/` as packages containing only `__init__.py` and a `README.md` pointing at TRA-6 and TRA-34; `tests/conftest.py` and an empty `tests/README.md`. No rule logic, no engine, no Django project. First commit; delete the duplicate `reports/data-and-rules-scope.md`. GitHub remote creation and branch protection run only if `gh auth status` succeeds; otherwise the commands are left in `docs/12-linear-workflow.md`.
+1. **Linear.** Through the connector: add the `In Review` status; create the label groups and labels; create the seven projects with descriptions and milestones; create the issue template as a team document; create the 48 tickets (TRA-1 … TRA-48, where TRA-44 is one ticket per owner) with full template bodies, assignees (Vedant = veddev404@gmail.com, Natalie = natalie.king@coforge.com, Vedanshu = vedanshu.patel@coforge.com, Abdul = abdul.2.shaik@coforge.com), labels, estimates and blocked-by relations; mark TRA-1 and TRA-43 Done once step 2 lands. Cycles and estimates must be switched on by hand in team settings first; I will say so and proceed with the rest, and cycle assignment is then a two-minute drag in Linear.
+2. **Scaffold.** In the project folder: `git init`; the F4 tree with `pyproject.toml` (uv, Python 3.13 pin, dependency list), `.pre-commit-config.yaml`, `.gitignore`, `.gitattributes`, `.env.example`, `Makefile`, `CODEOWNERS`, PR template, `dependabot.yml`, `ci.yml` and `publish.yml`, `Dockerfile`, the three compose files and `Caddyfile`; `docs/` filled from this plan including `docs/PLAN.md` (this document), `docs/05-architecture.md` with the day-0 contract text and the field-to-XPath table, `docs/12-linear-workflow.md` with the working agreement and the exact `gh` commands for branch protection; `rules/_schema/rule.schema.json`, `rules/red_flags.yaml` seeded with the curated red flags, and `rules/r00_example/` with annotated placeholder `rule.yaml`, `rule.sql`, `inject.py`, `explain.py`, `evidence.html`, `test_rule.py`, `README.md`; the twelve empty rule folders each containing only a `README.md` naming the owner, the ticket and the contract; `data/reference/fetch_lists.sh` and `data/reference/README.md` with every D7 URL; `screener/` and `app/` as packages containing only `__init__.py` and a `README.md` pointing at TRA-2 and TRA-30; `tests/conftest.py` and an empty `tests/README.md`. No rule logic, no engine, no Django project. First commit; delete the duplicate `reports/data-and-rules-scope.md`. GitHub remote creation and branch protection run only if `gh auth status` succeeds; otherwise the commands are left in `docs/12-linear-workflow.md`.
 3. **Hand-over.** The breakdown email draft for Adam with the ownership table and ticket keys, and a one-paragraph "start here" note per owner in `README.md`. Then this session ends; everything else happens in the owners' sessions.
 
 ## F9. Caveats
@@ -602,6 +605,126 @@ transaction-alert-screener/
 - Linear cycles were not enabled when checked; the API cannot enable them, so cycle assignments in the tickets wait on that one setting.
 - Branch, ATM, P2P and multi-account assignments are synthetic and label-blind; SAML-D is UK-centric data read as USD; rule parameters are conventions; vendor prices are estimates; FATF historical dates need a browser check.
 - Standards research caveats: the Swift MT101 end date is reported both as Nov 2026 and as "delayed indefinitely" (swift.com blocks fetch); the exact FedNow message inventory rests on secondary sources; the newest BankTransactionCode codification spreadsheet found is March 2024, while the Nov 2025 narrative agrees with it; FFIEC Appendix F wording comes from secondary sources. Kaggle's download of SAML-D requires a free account, which the team already used.
+
+# PART G — CLIENT REPLY OF NOV 11 (DEBASISH) RECONCILED WITH THE PLAN
+
+Debasish answered our nine written questions on 2026-11-11. He asked us to document assumptions and reasoning where he could not be precise. This part records what his answers confirm, what they change, and the exact edits to make in the repo and in Linear. The scaffold session applies these edits; build work stays with the owners.
+
+## G1. Facts from the reply (verbatim meaning, our tag)
+1. **Priority:** wires and cash deposits first ("those two feed our three core rules"), ACH next, P2P last and possibly absent from the export. [client]
+2. **Geography:** US regional bank, domestic customers, no foreign branches; some outbound wires go abroad. The 60-minute threshold did not come from him; any time-based rule must be walked through with him before it goes live. [client]
+3. **Thresholds today:** near-limit deposits $9,000–$10,000; same-day splitting = one customer, two or more deposits each at or under $10,000, adding past $10,000 across all their accounts, one flag per customer per day; dormancy = 180+ days idle, then $2,000+ going out; interest and fees do not reset the clock, a deposit does. Research = filter yesterday's export in Excel, then core-banking screens for history and ID; nothing recorded. [client]
+4. **Formats:** core export and wire feed are two different layouts; probably not ISO 20022; plan a mapping step and tell them which fields we need. [client]
+5. **Auditor:** for any **account**, every flag it ever had (date, rule, amount, decision), exportable as CSV or Excel, plus a printable one-page summary per account. [client]
+6. **Operations:** manual review every morning, about 90 minutes a day, three patterns; tool flags only; bad rows are set aside with a reason, never dropped; limits changeable without a programmer. [client]
+7. **Crypto:** none; do not build crypto handling. [client]
+8. **KYC:** done at onboarding in the core under CIP; manual basic risk rating; do not re-verify; worst case show the rating next to a flag. [client]
+9. **Throughput:** no number; "tens of thousands of rows a day, tops"; one batch run every hour on incrementals, not real time. [client]
+
+Assumptions we must document because he could not answer: P2P exists in the export (we keep R11 in shadow and disclose that the rail is synthetic until a sample proves otherwise); daily volume 10k–50k rows (we size the demo subsample to 100k accounts, which produces that order of magnitude); the two feeds carry an account number and a cash indicator (if the cash indicator is missing, the tran-code map derives it).
+
+## G2. Coverage: already in the plan, no change
+Flag-only and human decision (Part C, every rule ticket, agent controls A1); audit log and export as the core deliverable (TRA-11, TRA-12); admin console without a programmer (TRA-39); canonical schema plus one adapter per layout and the tran-code map (D6, TRA-6, TRA-24); risk rating displayed next to the flag; no crypto; 60-minute threshold treated as a question.
+
+## G3. Changes to make
+
+| # | Change | Where | Ticket |
+|---|---|---|---|
+| C1 | **R02 version-1 default = the client's rule:** variant (c) any single cash deposit in [$9,000, $10,000]. Our multi-day variants (a), (b) become version 2, enabled only after a backtest shows the alert-count delta to the client. | `rules/r02_structuring_multi_day/README.md`, docs/03 | TRA-16 description and AC |
+| C2 | **R03 version-1 default = the client's same-day splitting:** one customer, ≥2 cash deposits each ≤$10,000 (across all accounts), day total > $10,000; one hit per customer per business day. Our branch/channel condition becomes version 2. R01 (CTR candidate, > $10,000 total regardless of count) stays a separate list; a split day is both a CTR candidate and an R03 hit by design. | `rules/r03_structuring_same_day/README.md`, docs/03 | TRA-17 |
+| C3 | **R04 version-1 default = the client's dormancy:** idle ≥180 days counting customer-initiated entries only (interest and fees excluded, any deposit resets), then **outbound ≥ $2,000** within 7 days. Our $5,000 in-or-out and 10× rules become version 2. | `rules/r04_dormant_reactivation/README.md`, docs/03 | TRA-25 |
+| C4 | **Rule priority and modes:** P1 live-candidates R01, R02, R03, R04, R09, R06 (R06 scoped to outbound wires abroad; inbound cross-border weight lowered); P2 R05, R12, R07, R08; P3 R11 stays **shadow** with the note "rail may be absent from the export". Linear priorities set accordingly. Note the conflict with the kickoff pain points (pass-through, new beneficiary, P2P) and ask Debasish to confirm the order in the next written exchange. | docs/03 B2 table, docs/08 | TRA-15/16/17/25/42/41 → Urgent; TRA-33/37/26/27 → High; TRA-43 → Medium, mode shadow |
+| C5 | **Time-based rules need a client walkthrough before live:** R05 (72h) and R07 (48h) and any version-2 window change. Add a gate to the acceptance criteria. | docs/03, docs/08 | TRA-33, TRA-26 |
+| C6 | **Hourly incremental batch:** `screener run --since <last_run>` processes new entries, re-evaluates affected customer-days, and upserts hits and alerts by (rule_version, customer, business_day) so reruns are idempotent; scheduler cron becomes hourly; nightly remains a full reconciliation run. | `docker/crontab`, docs/05, E3 data flow | TRA-21 (engine), TRA-8 (compose) |
+| C7 | **Quarantine, never drop:** `rejected_entry` table (load_batch_id, raw row, reason, source) written by every adapter; count shown on the load report; a Quarantine page lists rows with reasons. | docs/05 data model, docs/04 | TRA-6 (schema), TRA-24 (adapter), TRA-34 (page) |
+| C8 | **Per-account audit view:** account-level filter on the export; printable one-page account summary (every flag: date, rule, version, amount, decision, actor); CSV opens in Excel, so CSV plus the printable page satisfies "CSV or Excel". | docs/11 demo step 9 | TRA-12, TRA-28 (customer page gets an account history tab) |
+| C9 | **Risk tier:** multipliers default to 1.0 (client thresholds are flat); multipliers stay configurable in the admin console; drop sanctions/PEP-based tiering from the US layer (KYC is the core's job). Rating shown on every alert. | docs/03, docs/04 D3 | TRA-30 (remove PEP tiering), TRA-34 (show rating) |
+| C10 | **Field-requirements sheet for the vendors:** the minimum fields we need from the core export and from the wire feed, mapped to the canonical schema (account id, customer id if any, posting and effective dates, amount, debit/credit, transaction code and description, cash indicator or derivable code, branch or teller id, channel, counterparty name, account, bank and country for wires, memo). Plus a `wire_feed` adapter skeleton beside `core_csv`. | new `docs/14-field-requirements.md`, `screener/adapters/` | **New ticket** (P0, Vedant, 2 pts) |
+| C11 | **ROI anchor:** lead the leadership outline with "90 analyst-minutes a day and an audit trail", keep the fraud-loss framing as context, drop the streaming lane and digital-assets items from the roadmap (aspirational only). | docs/06, docs/13 outline | TRA-51 |
+| C12 | **Record the answers:** docs/08 marks Q1 (60 minutes), Q7 (source systems), Q10 (crypto) answered with the text above; README meeting notes gain a "2026-11-11 written reply" entry; open follow-ups: confirm rule priority vs kickoff pain points; whether P2P appears in the export; which screening vendor and KYC refresh cycle (for the deck, not the build); sample layouts of the two feeds. | `docs/08-client-questions.md`, `README.md` | TRA-52 |
+
+## G4. What this does not change
+The canonical schema and contracts (the client's "plan a mapping step" is exactly D6); the per-rule folder layout; the Django choice; the four-slice ownership; the agent thin slice (he did not mention it; the kickoff asked for it; it stays, phase 0, draft only).
+
+## G6. Every Linear ticket, what changes (applied through the connector; descriptions get a "Client reply 2026-11-11" block, priorities and modes as listed)
+
+| Ticket | Owner | Change |
+|---|---|---|
+| TRA-5 scaffold | Vedant | Status note only: hourly cron and quarantine table added to the scaffold. |
+| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day) so hourly reruns upsert; `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
+| TRA-7 ci.yml | Vedant | No change. |
+| TRA-8 Docker/compose | Vedant | `docker/crontab`: hourly `screener run --since last` plus nightly `screener run --day yesterday --reconcile`; AC adds "hourly run is idempotent on a second pass". |
+| TRA-9 CI docker job | Vedant | Smoke sequence adds `screener run --since` after the day run and asserts no duplicate alerts. |
+| TRA-10 publish | Vedant | No change. |
+| TRA-11 audit log | Vedant | No change. |
+| TRA-12 audit export | Vedant | Add `--account` filter; add printable **one-page account summary** (every flag the account ever had: date, rule, version, amount, decision, actor); AC: "for any account, every flag ever, CSV plus one page". |
+| TRA-13 reference data | Vedant | No change (country risk still needed for outbound wires). |
+| TRA-14 demo environment | Vedant | Demo subsample sized to ~10k rows/day (client: "tens of thousands, tops"); demo shows one hourly incremental run. |
+| TRA-53 camt.054 export | Vedant | No change (stretch). |
+| **TRA-58 (new)** field-requirements sheet and feed adapters | Vedant, P0, 2 pts, M0 | `docs/14-field-requirements.md`: minimum fields from the core export and the wire feed mapped to the canonical schema, with "required / derivable / nice-to-have"; `screener/adapters/core_csv.py` and `wire_feed.py` skeletons that raise with the field list; sent to Debasish for ops and the vendors. |
+| TRA-15 R01 CTR | Vedant | Note: a same-day split that exceeds $10,000 is both a CTR candidate and an R03 hit by design; no logic change. Priority Urgent. |
+| TRA-16 R02 | Vedant | **v1 = client rule: any single cash deposit in [$9,000, $10,000]** (`params.near_limit_low 9000, near_limit_high 10000`). Variants (a) and (b) become v2, enabled only after the backtest delta is shown to the client. Priority Urgent. |
+| TRA-17 R03 | Vedant | **v1 = client rule: one customer, ≥2 cash deposits each ≤ $10,000 across all accounts, day total > $10,000, one hit per customer per business day.** Branch/channel condition becomes v2. Priority Urgent. |
+| TRA-18 panels r01–r03 | Vedant | R03 panel lists every account of the customer that contributed. |
+| TRA-19 explain r01–r03 | Vedant | No change. |
+| TRA-20 measure R01–R03 | Vedant | Measure v1 and v2 for R02 and R03 and record the delta table. |
+| TRA-21 rules engine | Vedanshu | Add `run --since <timestamp>` (incremental: new entries plus re-evaluation of every customer-day they touch) and `--reconcile` (full day); upsert hits by the uniqueness key; manifest records the mode. Nightly-only wording removed. |
+| TRA-22 consolidation | Vedanshu | Upsert: a new hit on an existing open alert attaches to it; on a closed customer-day alert it creates an `alert_event` "new hit after close" and reopens to NEW (audited). Tier factor default 1.0. |
+| TRA-23 backtest | Vedanshu | AC adds: compare two versions side by side (the v1 client definitions vs our v2 variants). |
+| TRA-25 R04 | Vedanshu | **v1 = client rule: idle ≥180 days on customer-initiated entries (interest and fees excluded; any deposit resets), then outbound ≥ $2,000 within 7 days.** $5,000 in-or-out and 10× become v2. Priority Urgent. |
+| TRA-26 R07 | Vedanshu | Priority High (ACH-dependent); AC adds "client walkthrough of the 48h window before live". |
+| TRA-27 R08 | Vedanshu | Priority High; note cash withdrawals come from the core export (wires and cash first). |
+| TRA-28 customer page | Vedanshu | Add an **account history tab**: every flag per account with date, rule, amount, decision (the auditor's view), reusing the export query. |
+| TRA-29 explain + measure | Vedanshu | No change. |
+| TRA-24 SAML-D adapter | Abdul | Write `rejected_entry` rows with reasons instead of counting rejects; AC: "no row is dropped silently". |
+| TRA-30 US layer | Abdul | Remove sanctions/PEP-based tiering (KYC is the core's job); tier stays a seeded synthetic field shown next to the flag; P2P relabel kept and marked as an assumption pending a real export sample. |
+| TRA-31 subsample + Tide | Abdul | Subsample target ≈ 300k accounts so daily rows ≈ 10k (documented assumption); alert budgets scale with it. |
+| TRA-33 R05 | Abdul | Priority High (ACH next); shadow; AC adds "client walkthrough of the 72h window before live". |
+| TRA-36 R10 | Abdul | Priority High. |
+| TRA-37 R12 | Abdul | Priority High. |
+| TRA-38 funds-flow panels | Abdul | No change. |
+| TRA-40 evaluation | Abdul | Output a v1-vs-v2 comparison for rules that have both. |
+| TRA-34 Django skeleton | Natalie | Queue and alert header show the risk rating; add a Quarantine page (rejected rows with reasons) and a Loads page (reconciliation report per batch). |
+| TRA-35 state machine | Natalie | No change. |
+| TRA-39 admin console | Natalie | Tier multipliers editable, default 1.0; otherwise no change. |
+| TRA-41 R06 | Natalie | Scope v1 to **outbound** wires abroad (`PMNT/ICDT/XBCT`); inbound cross-border weight lowered; Priority Urgent. |
+| TRA-42 R09 | Natalie | Priority Urgent (wires first); no logic change. |
+| TRA-43 R11 | Natalie | Priority Medium; mode **shadow**; description notes the rail may be absent from the export and that the demo rail is synthetic. |
+| TRA-44 counterparty panels | Natalie | No change. |
+| TRA-45/46/47 agent | Vedant | No change. |
+| TRA-48 docs | Vedant | Done; reopened only to add docs/14 and the meeting-notes entry (or folded into TRA-52). |
+| TRA-49 and TRA-54–57 catalogue sections | all | Each section states the client's v1 definition verbatim, our v2 variant, and the measured delta. |
+| TRA-50 demo script | Vedant | Steps added: hourly incremental run, quarantine page, per-account one-page export; R11 shown only as shadow. |
+| TRA-51 leadership outline | Vedant | Lead with "90 analyst-minutes a day and an audit trail you can hand to an examiner"; fraud-loss figures as context; streaming lane and digital assets moved to "aspirational". |
+| TRA-52 client follow-ups | Vedant | Log the nine answers; new follow-ups: confirm rule priority vs kickoff pain points; whether P2P appears in the export; sample layouts of the two feeds (or the field sheet filled in); screening vendor and KYC refresh cycle for the deck only. |
+
+## G7. Every scaffold file that changes
+
+| File | Edit |
+|---|---|
+| `docs/PLAN.md` | This Part G appended; B2 table rows for R02, R03, R04, R06, R11 updated with v1 client definitions, v2 variants, priorities and modes; D3 drops PEP tiering and states the subsample assumption; E3 data flow says "hourly incremental run plus nightly reconciliation"; F6 demo steps updated. |
+| `docs/03-rules-catalogue.md` | Regenerated from the updated B2; a "Version 1 (client) vs version 2 (ours)" column. |
+| `docs/04-data-plan.md` | D3 edits; quarantine described; subsample size assumption. |
+| `docs/05-architecture.md` | Data model gains `rejected_entry`; hit uniqueness key and upsert semantics added to the hit → alert contract; run modes `--day`, `--since`, `--reconcile`. |
+| `docs/08-client-questions.md` | Q1, Q7, Q10 marked answered with the reply text; new follow-ups F1–F4 with defaults. |
+| `docs/11-demo-script.md` | Steps for hourly run, quarantine, per-account export; R11 as shadow. |
+| `docs/12-linear-workflow.md` | Ticket table regenerated with new priorities, TRA-58 added. |
+| `docs/14-field-requirements.md` | New: field sheet for core export and wire feed. |
+| `README.md` | Meeting notes: "2026-11-11 written reply" entry with the nine answers condensed; ownership table unchanged; start-here notes point to v1 definitions. |
+| `rules/r02_structuring_multi_day/README.md`, `rules/r03_structuring_same_day/README.md`, `rules/r04_dormant_reactivation/README.md` | v1 client definition quoted, v2 variant described, walkthrough gate where time-based. |
+| `rules/r06_high_risk_jurisdiction/README.md`, `rules/r11_p2p_anomaly/README.md` | Outbound-only scope; shadow and rail-assumption note. |
+| `rules/r00_example/rule.yaml` | `tier_multipliers: { low: 1.0, medium: 1.0, high: 1.0 }`. |
+| `rules/_schema/rule.schema.json` | Description of `tier_multipliers` says default 1.0; optional `client_definition: string` field to quote the client's wording. |
+| `docker/crontab` | Hourly incremental line plus nightly reconciliation line. |
+| `data/reference/tran_code_map.csv` | Placeholder rows for `core_csv` and `wire_feed` sources marked "to be filled from the vendor layouts". |
+| `screener/adapters/README.md` (new) | Lists saml_d, tide, fixtures, core_csv, wire_feed and the field sheet. |
+| `tests/test_contracts.py` | Accepts the optional `client_definition` field; asserts default multipliers are 1.0 in `r00_example`. |
+
+## G5. Verification for this part
+- `rules/r02_*`, `r03_*`, `r04_*` READMEs and docs/03 show the client's version-1 definitions with the quoted thresholds and the version-2 variants marked "after backtest and client walkthrough".
+- Linear: priorities and descriptions updated on the tickets named above; one new ticket for the field-requirements sheet and wire-feed adapter; TRA-43 marked shadow in its description.
+- docs/08 and README record the reply and the four open follow-ups.
+- Nothing in the repo contradicts the reply (grep for "nightly" in docs resolves to "hourly incremental plus nightly reconciliation").
 
 ---
 

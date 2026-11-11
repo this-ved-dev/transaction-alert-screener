@@ -177,3 +177,55 @@ JSON
 ```
 
 Then: invite the three collaborators (`gh api -X PUT repos/this-ved-dev/transaction-alert-screener/collaborators/<handle> -f permission=push`), replace the `@VEDANSHU_GITHUB`, `@ABDUL_GITHUB`, `@NATALIE_GITHUB` placeholders in `CODEOWNERS` with their handles, make the GHCR package public after the first `publish` run, and connect the Linear GitHub integration (Linear → Settings → Integrations → GitHub) so branches and PRs move issues automatically.
+
+## G6. Every Linear ticket, what changes (applied through the connector; descriptions get a "Client reply 2026-11-11" block, priorities and modes as listed)
+
+| Ticket | Owner | Change |
+|---|---|---|
+| TRA-5 scaffold | Vedant | Status note only: hourly cron and quarantine table added to the scaffold. |
+| TRA-6 day-0 contracts | Vedant | Add `rejected_entry` table (load_batch_id, source, raw_row JSON, reason) to the schema; hit uniqueness key (rule_version_id, customer_id, business_day) so hourly reruns upsert; `tier_multipliers` default 1.0/1.0/1.0 in the rule schema; fixture Parquet gains a few rows that fail validation to exercise quarantine. |
+| TRA-7 ci.yml | Vedant | No change. |
+| TRA-8 Docker/compose | Vedant | `docker/crontab`: hourly `screener run --since last` plus nightly `screener run --day yesterday --reconcile`; AC adds "hourly run is idempotent on a second pass". |
+| TRA-9 CI docker job | Vedant | Smoke sequence adds `screener run --since` after the day run and asserts no duplicate alerts. |
+| TRA-10 publish | Vedant | No change. |
+| TRA-11 audit log | Vedant | No change. |
+| TRA-12 audit export | Vedant | Add `--account` filter; add printable **one-page account summary** (every flag the account ever had: date, rule, version, amount, decision, actor); AC: "for any account, every flag ever, CSV plus one page". |
+| TRA-13 reference data | Vedant | No change (country risk still needed for outbound wires). |
+| TRA-14 demo environment | Vedant | Demo subsample sized to ~10k rows/day (client: "tens of thousands, tops"); demo shows one hourly incremental run. |
+| TRA-53 camt.054 export | Vedant | No change (stretch). |
+| **TRA-58 (new)** field-requirements sheet and feed adapters | Vedant, P0, 2 pts, M0 | `docs/14-field-requirements.md`: minimum fields from the core export and the wire feed mapped to the canonical schema, with "required / derivable / nice-to-have"; `screener/adapters/core_csv.py` and `wire_feed.py` skeletons that raise with the field list; sent to Debasish for ops and the vendors. |
+| TRA-15 R01 CTR | Vedant | Note: a same-day split that exceeds $10,000 is both a CTR candidate and an R03 hit by design; no logic change. Priority Urgent. |
+| TRA-16 R02 | Vedant | **v1 = client rule: any single cash deposit in [$9,000, $10,000]** (`params.near_limit_low 9000, near_limit_high 10000`). Variants (a) and (b) become v2, enabled only after the backtest delta is shown to the client. Priority Urgent. |
+| TRA-17 R03 | Vedant | **v1 = client rule: one customer, ≥2 cash deposits each ≤ $10,000 across all accounts, day total > $10,000, one hit per customer per business day.** Branch/channel condition becomes v2. Priority Urgent. |
+| TRA-18 panels r01–r03 | Vedant | R03 panel lists every account of the customer that contributed. |
+| TRA-19 explain r01–r03 | Vedant | No change. |
+| TRA-20 measure R01–R03 | Vedant | Measure v1 and v2 for R02 and R03 and record the delta table. |
+| TRA-21 rules engine | Vedanshu | Add `run --since <timestamp>` (incremental: new entries plus re-evaluation of every customer-day they touch) and `--reconcile` (full day); upsert hits by the uniqueness key; manifest records the mode. Nightly-only wording removed. |
+| TRA-22 consolidation | Vedanshu | Upsert: a new hit on an existing open alert attaches to it; on a closed customer-day alert it creates an `alert_event` "new hit after close" and reopens to NEW (audited). Tier factor default 1.0. |
+| TRA-23 backtest | Vedanshu | AC adds: compare two versions side by side (the v1 client definitions vs our v2 variants). |
+| TRA-25 R04 | Vedanshu | **v1 = client rule: idle ≥180 days on customer-initiated entries (interest and fees excluded; any deposit resets), then outbound ≥ $2,000 within 7 days.** $5,000 in-or-out and 10× become v2. Priority Urgent. |
+| TRA-26 R07 | Vedanshu | Priority High (ACH-dependent); AC adds "client walkthrough of the 48h window before live". |
+| TRA-27 R08 | Vedanshu | Priority High; note cash withdrawals come from the core export (wires and cash first). |
+| TRA-28 customer page | Vedanshu | Add an **account history tab**: every flag per account with date, rule, amount, decision (the auditor's view), reusing the export query. |
+| TRA-29 explain + measure | Vedanshu | No change. |
+| TRA-24 SAML-D adapter | Abdul | Write `rejected_entry` rows with reasons instead of counting rejects; AC: "no row is dropped silently". |
+| TRA-30 US layer | Abdul | Remove sanctions/PEP-based tiering (KYC is the core's job); tier stays a seeded synthetic field shown next to the flag; P2P relabel kept and marked as an assumption pending a real export sample. |
+| TRA-31 subsample + Tide | Abdul | Subsample target ≈ 300k accounts so daily rows ≈ 10k (documented assumption); alert budgets scale with it. |
+| TRA-33 R05 | Abdul | Priority High (ACH next); shadow; AC adds "client walkthrough of the 72h window before live". |
+| TRA-36 R10 | Abdul | Priority High. |
+| TRA-37 R12 | Abdul | Priority High. |
+| TRA-38 funds-flow panels | Abdul | No change. |
+| TRA-40 evaluation | Abdul | Output a v1-vs-v2 comparison for rules that have both. |
+| TRA-34 Django skeleton | Natalie | Queue and alert header show the risk rating; add a Quarantine page (rejected rows with reasons) and a Loads page (reconciliation report per batch). |
+| TRA-35 state machine | Natalie | No change. |
+| TRA-39 admin console | Natalie | Tier multipliers editable, default 1.0; otherwise no change. |
+| TRA-41 R06 | Natalie | Scope v1 to **outbound** wires abroad (`PMNT/ICDT/XBCT`); inbound cross-border weight lowered; Priority Urgent. |
+| TRA-42 R09 | Natalie | Priority Urgent (wires first); no logic change. |
+| TRA-43 R11 | Natalie | Priority Medium; mode **shadow**; description notes the rail may be absent from the export and that the demo rail is synthetic. |
+| TRA-44 counterparty panels | Natalie | No change. |
+| TRA-45/46/47 agent | Vedant | No change. |
+| TRA-48 docs | Vedant | Done; reopened only to add docs/14 and the meeting-notes entry (or folded into TRA-52). |
+| TRA-49 and TRA-54–57 catalogue sections | all | Each section states the client's v1 definition verbatim, our v2 variant, and the measured delta. |
+| TRA-50 demo script | Vedant | Steps added: hourly incremental run, quarantine page, per-account one-page export; R11 shown only as shadow. |
+| TRA-51 leadership outline | Vedant | Lead with "90 analyst-minutes a day and an audit trail you can hand to an examiner"; fraud-loss figures as context; streaming lane and digital assets moved to "aspirational". |
+| TRA-52 client follow-ups | Vedant | Log the nine answers; new follow-ups: confirm rule priority vs kickoff pain points; whether P2P appears in the export; sample layouts of the two feeds (or the field sheet filled in); screening vendor and KYC refresh cycle for the deck only. |

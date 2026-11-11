@@ -62,6 +62,9 @@ Attendees: Debasish Chanda (bank leadership), Anurag Gupta (Coforge partner, joi
 - Logistics: questions in writing; calls need 48 hours' notice; SME Stacy available; Coforge BFSI leadership presentation in about two months.
 - Decisions: hybrid advisory (deterministic rules as the regulatory floor, in-bank investigator agent for triage and drafting, human decides every case). Written summary and discovery brief sent Nov 6.
 
+### 2026-11-11 — written reply from Debasish to our nine questions
+Wires and cash first, ACH next, P2P last and possibly absent. US domestic bank; the 60-minute threshold did not come from him; any time-based rule must be walked through before it goes live. Thresholds used today: near-limit deposits $9,000–$10,000; same-day splitting of two or more deposits at or under $10,000 adding past $10,000 across all a customer's accounts, one flag per customer per day; dormancy 180+ days then $2,000+ out, with interest and fees not resetting the clock. Core export and wire feed are two different layouts, probably not ISO 20022: plan a mapping step and tell them which fields we need. Auditor needs every flag an account ever had plus a printable one-page summary per account. Review today is manual, about 90 minutes a day; flag only; bad rows set aside with a reason; limits changeable without a programmer. No crypto. KYC stays in the core; show the rating. Tens of thousands of rows a day; one batch run every hour on incrementals. Full text and consequences: [`docs/08-client-questions.md`](docs/08-client-questions.md).
+
 ### Follow-up questions sent in writing
 See [`docs/08-client-questions.md`](docs/08-client-questions.md). Answers are logged here as they arrive.
 

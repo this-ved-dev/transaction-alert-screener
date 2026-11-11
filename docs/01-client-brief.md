@@ -1,4 +1,4 @@
-<!-- Generated from docs/PLAN.md on 2026-11-11. Edit PLAN.md for research changes; edit this file for working detail. -->
+<!-- Generated from docs/PLAN.md on 2026-11-11 (client reply applied). Edit PLAN.md for research changes; edit this file for working detail. -->
 
 # PART A — DOMAIN RESEARCH
 
@@ -42,7 +42,7 @@ Vendor-neutral recommendation from the discovery brief: build the data foundatio
 
 | Friction | Evidence | Answer |
 |---|---|---|
-| Scattered data, no warehouse, Excel and VB scripts | kickoff | Canonical schema with one adapter per source; nightly batch first, streaming lane later |
+| Scattered data, no warehouse, Excel and VB scripts | kickoff | Canonical schema with one adapter per source; hourly incremental batch, no streaming (client: "not real-time") |
 | Core data access; tran codes; account-only keys | [S86–S88] | Editable tran-code map; CIF keys; reconciliation report per load |
 | Vendor risk (OCC 2023-17; SOC 2) | [S89] | Everything runs inside the bank, including the LLM on the bank's credentials |
 | Alert flood; auto-close is a finding | Block, USAA, OCC 2026 | Encode current thresholds as v1; shadow mode; no auto-close by rules or agent |

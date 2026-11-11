@@ -14,3 +14,5 @@ tide,DEPOSIT,CRDT,PMNT,CNTR,CDPT,,TELLER,true,read as cash-in to the receiving a
 tide,WITHDRAWAL,DBIT,PMNT,CNTR,CWDL,,TELLER,true,
 tide,TRANSFER,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT,,ONLINE,false,XBCT when counterparty country differs
 tide,PAYMENT,DBIT,PMNT,CCRD,POSD,,POS,false,
+core_csv,TBD,CRDT|DBIT,PMNT,,,,,,fill from the bank's core export layout (docs/14-field-requirements.md); cash indicator derived from the code list if absent
+wire_feed,TBD,CRDT|DBIT,PMNT,RCDT|ICDT,DMCT|XBCT,,WIRE_ROOM,false,fill from the bank's wire feed layout; XBCT when the counterparty bank country is not US

@@ -21,3 +21,24 @@ The 17 questions in [`discovery-call.html`](discovery-call.html) slide 6 (compli
 | Q12 | When an auditor comes, what do they ask for first and in what format? | Audit export shape | **All alerts in a date range, CSV and printable** | P2 | Stacy |
 
 Rule-ranking sheet for Debasish: the 12 rules with columns incidents (12–18 months), $ impact, rank, notes. Lives in the discovery brief appendix.
+
+## Written reply received 2026-11-11 (Debasish)
+| Q | Answer (condensed) | Consequence |
+|---|---|---|
+| Priority | Wires and cash deposits first (they feed the three core rules), ACH next, P2P last and possibly absent | Rule priorities P1/P2/P3 in docs/03; R11 in shadow |
+| Geography / 60 minutes | US regional, domestic, some outbound wires abroad; the 60-minute threshold did not come from him; walk him through any time-based rule before it sticks | Q1 closed; R06 scoped to outbound; walkthrough gate on R05 and R07 |
+| Thresholds | Near-limit $9,000–$10,000; same-day splitting ≥2 deposits ≤$10,000 adding past $10,000 across all accounts, one flag per customer per day; dormancy 180+ days then $2,000+ out; interest and fees do not reset, a deposit does | Version-1 definitions of R02, R03, R04 |
+| Formats | Two layouts (core export, wire feed), probably not ISO 20022; plan a mapping step; tell us which fields | docs/14 field sheet; core_csv and wire_feed adapters (TRA-58) |
+| Auditor | For any account, every flag ever (date, rule, amount, decision); CSV or Excel plus a printable one-page summary per account | TRA-12 account filter and one-page summary; TRA-28 account history tab |
+| Operations | Manual, ~90 minutes a day, three patterns; flag only; bad rows set aside with a reason, never dropped; limits changeable without a programmer | `rejected_entry` quarantine; admin console; ROI anchor = 90 minutes a day |
+| Crypto | None; do not build crypto handling | Q10 closed; roadmap item aspirational only |
+| KYC | In the core under CIP; manual basic rating; do not re-verify; show the rating next to a flag | Tier multipliers default 1.0; sanctions/PEP tiering dropped; rating displayed |
+| Throughput | Tens of thousands of rows a day, tops; one batch run every hour on incrementals | Hourly `--since` run, nightly `--reconcile`; demo subsample ~10k rows/day |
+
+## Open follow-ups after the reply (owner Vedant, Adam copied)
+| # | Question | Default if unknown |
+|---|---|---|
+| F1 | The kickoff named pass-through, new beneficiary and P2P as pain points; this reply names near-limit, same-day splitting and dormancy as the three core rules. Which order should the first release follow? | **This reply's order** |
+| F2 | Does P2P (Zelle) activity appear in either feed, and how is it coded? | **Absent; R11 stays shadow** |
+| F3 | Can you share the column layouts (or a 50-row anonymised sample) of the core export and the wire feed, or have ops fill `docs/14-field-requirements.md`? | **We build the adapters to the field sheet** |
+| F4 | For the leadership deck only: screening vendor and KYC refresh cycle | **Left as "per bank policy"** |

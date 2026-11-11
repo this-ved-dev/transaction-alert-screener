@@ -1,4 +1,4 @@
-<!-- Generated from docs/PLAN.md on 2026-11-11. Edit PLAN.md for research changes; edit this file for working detail. -->
+<!-- Generated from docs/PLAN.md on 2026-11-11 (client reply applied). Edit PLAN.md for research changes; edit this file for working detail. -->
 
 # PART C — BUSINESS LOGIC
 
@@ -27,7 +27,8 @@
 | `rule_version` | id, rule_id, version, mode, params JSON, weight, red_flag_ids, profile (default/seasonal), effective_from, effective_to, proposed_by, approved_by, reason |
 | `hit` | id, run_id, rule_version_id, customer_id, account_id, business_day, matched_txn_ids, computed_values JSON |
 | `alert` | id, customer_id, business_day, score, status, assigned_to, risk_tier_at_fire, created_at |
-| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named |
+| `alert_hit`, `alert_event`, `suppression`, `audit_log`, `user`, `ctr_candidate`, `load_batch`, `run` | as named; `hit` is unique on (rule_version_id, customer_id, business_day) so hourly reruns upsert |
+| `rejected_entry` | id, load_batch_id, source, raw_row JSON, reason, created_at (client: bad rows are set aside with a reason, never dropped) |
 | `agent_draft` | id, alert_id, model, prompt_hash, evidence_pack JSON, output, created_by, created_at |
 | `country_risk` | country, tier, source, effective_from, effective_to |
 
@@ -48,7 +49,7 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 | Operational store | **PostgreSQL 16** (Docker) for alerts, dispositions, users, audit, rule versions, agent drafts; SQLite for unit tests | revoke UPDATE/DELETE on `audit_log`; the enterprise story |
 | Web | **Django 5 + HTMX + Tailwind (CDN)** — decided; the kickoff's "admin console to change thresholds and add rules without recoding" is Django admin plus maker-checker | auth, roles, ORM, migrations, admin, CSRF, autoescaping, `django-simple-history` built in |
 | Agent | Anthropic Python SDK behind a small `LLMClient` interface; provider and credentials from environment; deterministic stub for tests and CI | bank's own credentials; no vendor lock |
-| Background | `screener` CLI via `docker compose run` / cron | nightly batch |
+| Background | `screener` CLI via `docker compose run` / cron | hourly incremental run (`--since`) plus nightly reconciliation (`--reconcile`), per the client's reply |
 | Proxy / TLS | Caddy | two-line config |
 | CI | GitHub Actions (E5) | |
 | Observability | structured JSON logs; `run` manifest; `/healthz` | |

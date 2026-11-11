@@ -56,3 +56,9 @@ def test_hostile_memos_fixture_present():
     rows = list(csv.DictReader((ROOT / "data" / "fixtures" / "hostile_memos.csv").open()))
     assert any("<script>" in r["memo"] for r in rows)
     assert any("ignore previous instructions" in r["memo"] for r in rows)
+
+
+def test_example_rule_defaults_are_flat():
+    rule = yaml.safe_load((RULES / "r00_example" / "rule.yaml").read_text())
+    assert rule["tier_multipliers"] == {"low": 1.0, "medium": 1.0, "high": 1.0}
+    assert "client_definition" in rule

@@ -1,4 +1,4 @@
-<!-- Generated from docs/PLAN.md on 2026-11-11. Edit PLAN.md for research changes; edit this file for working detail. -->
+<!-- Generated from docs/PLAN.md on 2026-11-11 (client reply applied). Edit PLAN.md for research changes; edit this file for working detail. -->
 
 # PART D — DATA PLAN
 
@@ -20,7 +20,7 @@ All sources map once into the **camt.054-entry-shaped canonical record** defined
 SAML-D payment types map to triplets as: Cash Deposit → `PMNT/CNTR/CDPT`; Cash Withdrawal → `PMNT/CNTR/CWDL` (or `PMNT/CCRD/CWDL` when the US layer assigns ATM); ACH → `PMNT/ICDT|RCDT/ATXN` with `btc_proprietary` = a seeded SEC code; Cross-border → `PMNT/ICDT|RCDT/XBCT`; Cheque → `PMNT/ICHQ|RCHQ/CCHQ`; Credit/Debit card → `PMNT/CCRD/POSC|POSD`; the synthetic P2P share → `PMNT/ICDT|RCDT/DMCT` with `btc_proprietary` = `ZELLE` (there is no P2P sub-family in the standard, which is also how banks code it today).
 
 ## D3. The US layer on SAML-D (owner: Abdul, ~3–4 person-days)
-Currency 1:1 USD · customers: one account = one customer, plus a disclosed label-blind 10% sample grouped into 2–3-account customers · KYC tier 80/15/5 seeded · open date = first-seen after 90-day warm-up · US federal holidays 2022–2023 · branches from FDIC SOD renamed, home branch ~80%, label-blind · channels (ATM p=0.7 on withdrawals ≤$1,000; night-drop share on deposits) · P2P relabel p=0.3 on debit < $1,000 between personal accounts · demo subsample of 100,000 accounts keeping all labelled accounts · typology injection with `answer_key.json` (each rule owner writes the injector for their own rules against a shared injector interface).
+Currency 1:1 USD · customers: one account = one customer, plus a disclosed label-blind 10% sample grouped into 2–3-account customers · KYC tier 80/15/5 seeded and shown next to every flag (KYC lives in the core; we do not re-verify or screen) · open date = first-seen after 90-day warm-up · US federal holidays 2022–2023 · branches from FDIC SOD renamed, home branch ~80%, label-blind · channels (ATM p=0.7 on withdrawals ≤$1,000; night-drop share on deposits) · P2P relabel p=0.3 on debit < $1,000 between personal accounts · demo subsample of about 300,000 accounts keeping all labelled accounts, so that daily rows land near the client's "tens of thousands, tops" (assumption, documented) · typology injection with `answer_key.json` (each rule owner writes the injector for their own rules against a shared injector interface).
 
 ## D4. Reference data
 OFAC SDN + Consolidated CSV (public domain) [S58][S59]; OpenSanctions `us_sanctions`, `peps`, `us_fincen_special_measures` (CC BY-NC, class use only) [S64]; FATF point-in-time JSON (black: DPRK, Iran, Myanmar; grey with effective dates: Turkey Oct 2021–Jun 2024, UAE Mar 2022–Feb 2024, Nigeria Feb 2023–Oct 2025, Albania Feb 2020–Oct 2023, Morocco Feb 2021–Feb 2023, Pakistan Jun 2018–Oct 21 2022 — **verify each date in a browser**) [S61]; FDIC SOD; pandas holiday calendar.
@@ -97,7 +97,7 @@ SAML-D CC BY-NC-SA: coursework qualifies; **no rows in the repo**. Tide CC BY 4.
 
 Deviations from the standard are exactly four (`business_date`, `conductor`, `risk_tier` family, `source_message`), each with a documented landing zone, so a genuine camt.054 export of our entries is possible if an auditor or a vendor asks for one. This is the answer to "can this even be done": the per-rail schemas stay different at the edge, one adapter each; the rules, the UI, the audit trail and the agent see one standard-shaped record.
 
-**Consequences for the build:** `category` becomes the BTC triplet everywhere (rules filter on `btc_family IN ('CNTR','CCRD')` for cash, on `btc_subfamily = 'XBCT'` for cross-border, on `btc_proprietary = 'ZELLE'` for P2P); the tran-code map in `data/reference/` maps core codes → triplets; `data/reference/iso20022/` holds the downloaded external code sets, BTC codification and the camt.054 XSD; `screener export --format camt054` is a stretch ticket (TRA-53). Nothing in the rules changes except column names.
+**Consequences for the build:** `category` becomes the BTC triplet everywhere (rules filter on `btc_family IN ('CNTR','CCRD')` for cash, on `btc_subfamily = 'XBCT'` for cross-border, on `btc_proprietary = 'ZELLE'` for P2P); the tran-code map in `data/reference/` maps core codes → triplets; `data/reference/iso20022/` holds the downloaded external code sets, BTC codification and the camt.054 XSD; `screener export --format camt054` is a stretch ticket (TRA-48). Nothing in the rules changes except column names.
 
 ## D7. Dataset and reference-data availability register (every item checked 2026-11-11)
 
