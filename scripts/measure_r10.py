@@ -1,8 +1,8 @@
 """Measure R10 directly on local SAML-D, without TRA-24, TRA-21 or third-party row exports.
 
 Run: .venv/bin/python scripts/measure_r10.py data/raw/saml_d/SAML-D.csv
-One account = one customer; non-cash sender debit perspective. Amounts are checked exactly
-before cent conversion; no sampled labels enter the rule SQL. Output is aggregate JSON only.
+One account = one customer; non-cash sender-debit and receiver-credit legs. Amounts are checked
+exactly before cent conversion; no sampled labels enter the rule SQL. Output is aggregate JSON only.
 """
 
 import argparse
@@ -45,12 +45,17 @@ def main():
         candidate_count, positives = con.sql(
             "SELECT count(*), count(*) FILTER (WHERE Is_laundering='1') FROM candidates"
         ).fetchall()[0]
+        # Both legs, as the rule sees them: sender debit and receiver credit.
         con.execute("""
             CREATE VIEW entries AS SELECT 'S' || row_number() OVER () AS entry_id,
-                Sender_account AS account_id, 'saml_d:' || Sender_account AS cif_id,
+                account_id, 'saml_d:' || account_id AS cif_id, credit_debit,
+                Sender_account AS debtor_account, Receiver_account AS creditor_account,
                 Amount::DECIMAL(18,2) AS amount, Date::DATE AS business_date,
                 'USD' AS currency, 'BOOK' AS status, false AS is_reversal,
-                'ICDT' AS btc_family, 'ATXN' AS btc_subfamily FROM candidates
+                'PMNT' AS btc_domain, 'ICDT' AS btc_family, 'ATXN' AS btc_subfamily
+            FROM (SELECT *, Sender_account AS account_id, 'DBIT' AS credit_debit FROM candidates
+                  UNION ALL
+                  SELECT *, Receiver_account, 'CRDT' FROM candidates)
         """)
         count, customers = 0, set()
         for i in range((end - start).days + 1):
@@ -75,7 +80,7 @@ def main():
                 "qualifying_laundering_entries": positives,
                 "natural_customer_day_hits": count,
                 "natural_customers": len(customers),
-                "customer_proxy": "one sender account = one customer; no US grouping",
+                "customer_proxy": "one account = one customer; both legs; no US grouping",
             },
             indent=2,
         )

@@ -16,6 +16,7 @@ red_flag_ids: [RF-010]
 budget_per_month: 10
 tier_multipliers: {low: 1.0, medium: 1.0, high: 1.0}
 description: >
-  Flags a customer with at least five booked, unreversed USD non-cash entries in
-  thirty calendar days, each at least $2,000 and an exact multiple of $1,000.
+  Flags a customer with at least five booked, unreversed USD non-cash payment entries in
+  thirty calendar days, each at least $2,000 and an exact multiple of $1,000, on a day that
+  adds one. Transfers between the customer's own accounts, fees and interest do not count.
   This is a review indicator; it does not establish a lack of commercial purpose.

@@ -35,15 +35,18 @@ weight 1, live mode, budget 10/month per 100k accounts, flat tier multipliers. T
 thresholds from the project definition, not a statutory round-dollar threshold. RF-010 links
 to the FFIEC red-flag source in `rules/red_flags.yaml`.
 
-Count booked, unreversed USD non-cash entries across a customer's accounts over the run date
-and prior 29 calendar dates. Exclude `CNTR` and `CCRD/CWDL` cash while allowing non-cash card
-entries. Each amount must be at least $2,000 and have zero decimal remainder modulo $1,000.
+Count booked, unreversed USD non-cash payment (`PMNT`) entries in either direction across a
+customer's accounts over the run date and prior 29 calendar dates. Exclude `CNTR` and
+`CCRD/CWDL` cash while allowing non-cash card entries; exclude fees and interest (`ACMT`) and
+both legs of transfers between the customer's own accounts. Each amount must be at least $2,000
+and have zero decimal remainder modulo $1,000. Fire only on a run date that adds a qualifying
+entry, so one pattern raises one alert, not one per day it stays in the window.
 Return one customer hit (`group_key=cif_id`) with sorted entry IDs, count, total and thresholds.
 The analyst must still establish the commercial context; the rule does not infer intent.
 
 Measurement: 79 qualifying natural SAML-D entries and zero natural customer-day hits; injected
 recall 10/10. Commands, assumptions, source hash and caveats are in `docs/09-evaluation.md`.
-This measurement uses one sender account per customer and original source amounts. Re-measure
+This measurement uses one account per customer, both transfer legs, and original source amounts. Re-measure
 after US-layer grouping or amount normalization changes. No third-party rows are committed.
 
 ## G1. Facts from the reply (verbatim meaning, our tag)

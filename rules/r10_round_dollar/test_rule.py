@@ -98,15 +98,45 @@ def test_teller_and_atm_cash_excluded(family, subfamily, channel):
         {"status": "PDNG"},
         {"is_reversal": True},
         {"currency": "EUR"},
+        {"btc_domain": "ACMT", "btc_family": "MDOP", "btc_subfamily": "FEES", "channel": "SYSTEM"},
+        {"btc_domain": "ACMT", "btc_family": "MCOP", "btc_subfamily": "INTR", "channel": "SYSTEM"},
     ],
 )
-def test_pending_reversed_or_foreign_currency_entries_excluded(changes):
+def test_pending_reversed_foreign_currency_fee_and_interest_entries_excluded(changes):
     assert not run(entries(**changes))
 
 
 @pytest.mark.parametrize("age,fires", [(0, True), (29, True), (30, False), (-1, False)])
 def test_thirty_calendar_dates_include_both_endpoints(age, fires):
-    assert bool(run(entries(business_date=DAY - timedelta(days=age)))) == fires
+    rows = entries().to_pylist()
+    rows[0]["business_date"] = DAY - timedelta(days=age)
+    assert bool(run(pa.Table.from_pylist(rows, schema=schema.ENTRY))) == fires
+
+
+def test_fires_only_on_a_day_that_adds_a_qualifying_entry():
+    rows = entries().to_pylist()
+    for i, row in enumerate(rows):
+        row["business_date"] = DAY - timedelta(days=4 - i)
+    burst = pa.Table.from_pylist(rows, schema=schema.ENTRY)
+    assert run(burst)
+    assert not any(run(burst, DAY + timedelta(days=d)) for d in range(1, 30))
+
+
+def test_transfers_between_own_accounts_excluded():
+    rows = entries(6, amount=Decimal("5000.00")).to_pylist()
+    for i, row in enumerate(rows):
+        out = i % 2 == 0
+        row |= {
+            "account_id": "A0" if out else "A1",
+            "credit_debit": "DBIT" if out else "CRDT",
+            "debtor_account": "A0",
+            "creditor_account": "A1",
+        }
+    assert not run(pa.Table.from_pylist(rows, schema=schema.ENTRY))
+
+
+def test_engine_loads_the_whole_window():
+    assert RULE["windows"]["lookback_days"] >= RULE["params"]["window_days"]
 
 
 def test_customer_isolation_and_non_cash_card_entries():

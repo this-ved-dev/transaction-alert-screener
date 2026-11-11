@@ -7,8 +7,11 @@ Round-dollar pattern: >=5 non-cash entries in 30 days that are exact multiples o
 Implemented against the TRA-6 schema, independently of TRA-24 and the rules engine.
 `rule.sql` returns the six-column hit contract with `group_key = cif_id`, grouping across accounts.
 The window includes the run date and the previous 29 calendar dates. Only booked, unreversed USD
-entries count. Teller cash (`CNTR`) and ATM cash (`CCRD/CWDL`) are excluded; non-cash card
-entries remain eligible. Decimal modulo is exact: $2,000 qualifies and $2,000.01 does not.
+payment (`PMNT`) entries count, in either direction. Teller cash (`CNTR`) and ATM cash
+(`CCRD/CWDL`) are excluded; non-cash card entries remain eligible. Fees and interest (`ACMT`) and
+both legs of a transfer between the customer's own accounts are excluded. Decimal modulo is
+exact: $2,000 qualifies and $2,000.01 does not. The rule fires only on a run date that adds a
+qualifying entry, so one pattern does not raise a new alert every day it stays in the window.
 
 `inject(df, rng, n=10)` adds five entries for each of ten isolated synthetic customers, preserving
 the input schema and returning an answer key. It never reads labels. Tests run the real SQL
@@ -21,7 +24,7 @@ uv run python scripts/measure_r10.py data/raw/saml_d/SAML-D.csv
 
 Measured on 2026-11-11: all ten injected cases detected (100% recall); full SAML-D has 79
 qualifying individual entries, zero laundering-labelled entries among them, and zero customer-day
-hits over 2022-10-07–2023-08-23. This is a disclosed one-sender-account/one-customer measurement,
+hits over 2022-10-07–2023-08-23. This is a disclosed one-account/one-customer measurement over both legs,
 not the future synthetic multi-account grouping. It does not establish performance on a real
 bank export. Source rows are read locally and never committed.
 
