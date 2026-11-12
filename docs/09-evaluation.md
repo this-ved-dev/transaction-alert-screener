@@ -9,7 +9,7 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 
 | Rule | Mode | Alerts/month @100k | Precision | Recall | Lift | Labels used | Window | Command |
 |---|---|---|---|---|---|---|---|---|
-| R01 | | | | | | | | |
+| R01 | live (CTR list) | ~2 (195 cash-in customer-days natural) | TRA-20 | 100% injected (5/5) | TRA-20 | Synthetic R01 answer key; statutory rule, labels not needed to fire | Natural: 2022-10-07–2023-08-23 | See R01 commands below |
 | R02 | | | | | | | | |
 | R03 | | | | | | | | |
 | R04 | | | | | | | | |
@@ -21,6 +21,21 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | R10 | live | 0 natural | N/A (no natural hits) | 100% injected (10/10) | N/A | Synthetic R10 answer key; native labels reported separately | Natural: 2022-10-07–2023-08-23 | See R10 commands below |
 | R11 | | | | | | | | |
 | R12 | | | | | | | | |
+
+### R01 measured baseline (TRA-15, 2026-11-11)
+
+Commands: `uv run pytest rules/r01_ctr tests/test_contracts.py -q` and
+`uv run python scripts/measure_r01.py data/raw/saml_d/SAML-D.csv`.
+
+- Same full source and SHA-256 as R10 below; 525,683 cash rows (Cash Deposit and Cash Withdrawal).
+- The actual rule SQL, run for every business day in the range: **195 cash-in customer-days** (195
+  customers), which reproduces the profiling figure in docs/03. **0 cash-out customer-days**:
+  SAML-D's largest single cash withdrawal is $350 and no account withdraws more than about $1,045 in a day,
+  so the cash-out side is proven on fixtures only.
+- Five injected CTR days (one teller deposit, two accounts, two branches, teller plus ATM cash out,
+  night drop the evening before): all five caught, 100% recall.
+- One account = one customer (depositor = sender, withdrawer = receiver), amounts read 1:1 as USD,
+  weekend and `holidays_us.csv` roll-forward. Precision and lift against labels are TRA-20.
 
 ### R10 measured baseline (TRA-36, 2026-11-11)
 

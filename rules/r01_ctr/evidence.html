@@ -1,0 +1,7 @@
+{# Summary partial; the CTR candidates page and full evidence panel are owned by TRA-18. #}
+<section class="evidence" data-rule="r01">
+  <h3>CTR candidate</h3>
+  <p>Cash {% if hit.computed_values.direction == "CRDT" %}in{% else %}out{% endif %} of
+    ${{ hit.computed_values.total }} on {{ hit.business_day }}, across all accounts and branches,
+    above the ${{ hit.computed_values.threshold }} reporting threshold.</p>
+</section>
