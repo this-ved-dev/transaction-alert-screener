@@ -1,0 +1,26 @@
+id: r12
+name: Transfer splitting and new-sender funnel
+owner: abdul
+version: 1
+mode: shadow
+key: originator_beneficiary
+windows:
+  lookback_days: 97
+params:
+  a_min_count: 3
+  a_max_single: 9999.99
+  a_min_total: 10000.01
+  a_window_days: 7
+  b_min_senders: 5
+  b_min_new_senders: 3
+  b_new_sender_lookback_days: 90
+  b_window_days: 7
+weight: 3
+red_flag_ids: [RF-007, RF-012]
+budget_per_month: 40
+tier_multipliers: {low: 1.0, medium: 1.0, high: 1.0}
+description: >
+  Flags repeated sub-$10,000 non-cash payments from an originator to one beneficiary,
+  or a receiver paid by five senders including three new relationships, totalling
+  over $10,000 in seven calendar dates. Variant-prefixed group keys preserve each
+  pair or receiver. Both variants remain shadow pending measured budget and coverage.
