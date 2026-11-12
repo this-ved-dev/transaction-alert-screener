@@ -30,6 +30,9 @@ build/
 # django
 app/**/staticfiles/
 db.sqlite3
+data/screener.sqlite
+*.sqlite
+!data/fixtures/
 # os / editors
 .DS_Store
 .idea/

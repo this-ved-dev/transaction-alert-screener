@@ -142,5 +142,11 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 5. **Hit → alert contract:** consolidation and scoring read only the six hit columns plus `rule.yaml` weight and mode.
 6. **Agent tool contract:** `rules/<id>_<slug>/explain.py` exposing `evidence(hit, entries) -> list[EvidenceItem]`; the agent harness concatenates them.
 
+## E3a. Rules engine (TRA-21)
+
+`screener/engine.py` discovers `rules/r??_*/` folders that contain `rule.yaml`, validates each against `rules/_schema/rule.schema.json`, applies the medium-tier multiplier to monetary params (flat 1.0 by default), renders `rule.sql` with Jinja `StrictUndefined`, and executes in DuckDB over the canonical Parquet with views `entries` (no `typology_label`), `customers`, `country_risk` and `holidays`. Hits upsert on `schema.HIT_IDENTITY` = (`rule_version_id`, `customer_id`, `business_day`, `group_key`). Shadow rules record hits; consolidation (TRA-22) excludes them from alerts. `off` rules are validated but skipped by `screener run` (so `r00_example` stays off as the copy-me template); `run_fixtures()` / `fixture_run` includes `off` so per-rule tests still see r00 hits.
+
+CLI: `screener run --day YYYY-MM-DD [--store sqlite|postgres]` for a full day; `screener run --since <timestamp|last>` for the hourly incremental (new entries → re-evaluate their business days expanded forward by the widest rule window so look-back rules stay correct; upserts are idempotent); `screener run --day … --reconcile` for the nightly full pass. Only `--since` advances the watermark; `--day` / `--reconcile` must not rewind it. The `run` manifest records mode, watermark, input file hashes, rule versions, hit/entry counts and duration. Business-day roll-forward lives in `screener/calendar.py` (weekend + `data/reference/holidays_us.csv`).
+
 ## E4. Interface decision record (ADR-001)
 Django + HTMX + Tailwind. Reasons: the client asked for an admin console for thresholds and rules without recoding, which Django admin plus `django-simple-history` provides in a day; roles, audit and forms are the product; one language and one build system for four people. Alternatives considered: FastAPI + HTMX (1–2 days more plumbing), FastAPI + React (two build systems), Streamlit (no real roles). Revisit only if someone volunteers to own a React front end end-to-end.

@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-`fixture_run` runs every rule over the fixture Parquet once per session (rules engine ticket).
+`fixture_run` runs every rule over the fixture Parquet once per session (TRA-21).
 """
 
 import pytest
