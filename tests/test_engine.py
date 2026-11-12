@@ -202,17 +202,17 @@ def test_since_twice_over_same_data_yields_identical_hit_counts(tmp_path):
     assert con.execute("SELECT count(*) FROM hit").fetchone()[0] == first["hit_count"]
 
 
-def test_day_run_does_not_rewind_since_watermark(tmp_path):
+def test_day_run_does_not_rewind_ingestion_cursor(tmp_path):
     rules_root = _live_rules_copy(tmp_path, "r00_example")
     db = tmp_path / "wm.sqlite"
     incremental = run(
-        since="2000-01-01T00:00:00",
+        since="last",
         store="sqlite",
         sqlite_path=db,
         parquet=fx.OUT,
         rules_dir=rules_root,
     )
-    assert incremental["watermark"]
+    assert incremental["hit_count"] >= 1
     run(
         day=fx.DEMO_DAY,
         store="sqlite",
@@ -221,9 +221,109 @@ def test_day_run_does_not_rewind_since_watermark(tmp_path):
         rules_dir=rules_root,
     )
     again = run(since="last", store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
-    # Watermark unchanged by --day, so --since last still sees no new entries.
+    # --day must not clear processed_entry; --since last sees no new ids.
     assert again["hit_count"] == 0
-    assert again["watermark"] is None or again["asof_days"] == []
+    assert again["asof_days"] == []
+
+
+def test_since_last_picks_up_late_arriving_earlier_booking(tmp_path):
+    """P1: entry booked before the watermark but ingested later is still screened."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from screener import schema
+
+    rules_root = _live_rules_copy(tmp_path, "r00_example")
+    db = tmp_path / "late.sqlite"
+    base = schema.validate(pq.read_table(fx.OUT))[0]
+    # First incremental: process current fixture, advance cursor.
+    run(since="last", store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    # Late arrival: new entry_id, booking_ts earlier than noon watermark on DEMO_DAY.
+    seed = base.slice(0, 1).to_pylist()[0]
+    late = seed | {
+        "entry_id": "FXLATE001",
+        "cif_id": "CIF00999",
+        "account_id": "ACC00999",
+        "amount": __import__("decimal").Decimal("12000.00"),
+        "credit_debit": "CRDT",
+        "btc_family": "CNTR",
+        "btc_subfamily": "CDPT",
+        "channel": "TELLER",
+        "business_date": fx.DEMO_DAY,
+        "booking_ts": __import__("datetime").datetime(2023, 7, 14, 8, 0, 0),
+        "raw_ref": "fixture:late",
+        "typology_label": None,
+    }
+    combined = pa.Table.from_pylist(base.to_pylist() + [late], schema=schema.ENTRY)
+    late_path = tmp_path / "late.parquet"
+    pq.write_table(combined, late_path)
+    second = run(
+        since="last", store="sqlite", sqlite_path=db, parquet=late_path, rules_dir=rules_root
+    )
+    assert second["hit_count"] >= 1
+    assert any(h["customer_id"] == "CIF00999" for h in second["_hits_by_rule"]["r00"])
+
+
+def test_rule_version_rejects_param_change_without_bump(tmp_path):
+    """P1: mutating params under the same version must fail; hits keep their definition."""
+    rules_root = _live_rules_copy(tmp_path, "r00_example")
+    db = tmp_path / "ver.sqlite"
+    run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    spec_path = rules_root / "r00_example" / "rule.yaml"
+    spec = yaml.safe_load(spec_path.read_text())
+    spec["params"]["threshold_usd"] = 20000.0  # same version
+    spec_path.write_text(yaml.safe_dump(spec))
+    with pytest.raises(RuleError, match="bump version"):
+        run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    # Bumping version is accepted.
+    spec["version"] = int(spec["version"]) + 1
+    spec_path.write_text(yaml.safe_dump(spec))
+    ok = run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    assert ok["hit_count"] == 0  # 10500 no longer exceeds 20000
+
+
+def test_duplicate_hit_identities_fail_before_write(tmp_path):
+    """P2: one execution returning the same HIT_IDENTITY twice must not silently overwrite."""
+    rules_root = tmp_path / "rules"
+    rules_root.mkdir()
+    shutil.copytree(RULES / "_schema", rules_root / "_schema")
+    rule_dir = rules_root / "r00_dup"
+    rule_dir.mkdir()
+    (rule_dir / "rule.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "id": "r00",
+                "name": "Duplicate identity repro",
+                "owner": "example",
+                "version": 1,
+                "mode": "live",
+                "key": "customer",
+                "windows": {"lookback_days": 1},
+                "params": {"threshold_usd": 1.0},
+                "weight": 1.0,
+                "red_flag_ids": ["RF-004"],
+                "budget_per_month": 10,
+                "description": "Deliberately returns two rows with the same hit identity.",
+                "tier_multipliers": {"low": 1.0, "medium": 1.0, "high": 1.0},
+            }
+        )
+    )
+    (rule_dir / "rule.sql").write_text(
+        """
+SELECT 'CIF00001' AS customer_id, NULL::VARCHAR AS account_id,
+       DATE '{{ asof }}' AS business_day, 'CIF00001' AS group_key,
+       ['A']::VARCHAR[] AS matched_txn_ids,
+       to_json({'which': 1, 'threshold': {{ params.threshold_usd }}}) AS computed_values
+UNION ALL
+SELECT 'CIF00001', NULL::VARCHAR, DATE '{{ asof }}', 'CIF00001',
+       ['B']::VARCHAR[], to_json({'which': 2, 'threshold': {{ params.threshold_usd }}})
+"""
+    )
+    db = tmp_path / "dup.sqlite"
+    with pytest.raises(RuleError, match="duplicate hit identities"):
+        run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT count(*) FROM hit").fetchone()[0] == 0
 
 
 def test_load_rule_r00_example():

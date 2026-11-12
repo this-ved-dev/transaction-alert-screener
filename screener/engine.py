@@ -217,6 +217,7 @@ def _ensure_schema_sqlite(conn: sqlite3.Connection) -> None:
             params TEXT NOT NULL,
             weight REAL NOT NULL,
             red_flag_ids TEXT NOT NULL,
+            sql_sha256 TEXT NOT NULL DEFAULT '',
             UNIQUE (rule_id, version)
         );
         CREATE TABLE IF NOT EXISTS run (
@@ -249,6 +250,9 @@ def _ensure_schema_sqlite(conn: sqlite3.Connection) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS processed_entry (
+            entry_id TEXT PRIMARY KEY
+        );
         """
     )
     conn.commit()
@@ -266,6 +270,7 @@ def _ensure_schema_postgres(conn) -> None:
                 params JSONB NOT NULL,
                 weight DOUBLE PRECISION NOT NULL,
                 red_flag_ids JSONB NOT NULL,
+                sql_sha256 TEXT NOT NULL DEFAULT '',
                 UNIQUE (rule_id, version)
             );
             CREATE TABLE IF NOT EXISTS run (
@@ -294,62 +299,121 @@ def _ensure_schema_postgres(conn) -> None:
                 computed_values JSONB NOT NULL,
                 UNIQUE (rule_version_id, customer_id, business_day, group_key)
             );
-            CREATE TABLE IF NOT EXISTS engine_state (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            """
+        CREATE TABLE IF NOT EXISTS engine_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS processed_entry (
+            entry_id TEXT PRIMARY KEY
+        );
+        """
         )
     conn.commit()
 
 
-def _upsert_rule_version(conn, rule: LoadedRule, store: str) -> int:
-    params_json = json.dumps(rule.spec["params"], sort_keys=True)
-    flags_json = json.dumps(rule.spec["red_flag_ids"])
+def _rule_definition(rule: LoadedRule) -> dict[str, Any]:
+    """Immutable fields stored with a rule_version; changing any requires a version bump."""
+    return {
+        "mode": rule.mode,
+        "params": rule.spec["params"],
+        "weight": float(rule.spec["weight"]),
+        "red_flag_ids": rule.spec["red_flag_ids"],
+        "sql_sha256": hashlib.sha256(rule.sql_template.encode()).hexdigest(),
+    }
+
+
+def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
+    """Insert rule_version, or reuse it when the definition is identical.
+
+    Rejects silent mutation: the same (rule_id, version) with different params/SQL/mode
+    fails fast so hits keep citing the definition they fired under.
+    """
+    definition = _rule_definition(rule)
+    params_json = json.dumps(definition["params"], sort_keys=True)
+    flags_json = json.dumps(definition["red_flag_ids"])
+    sql_sha = definition["sql_sha256"]
     if store == "sqlite":
-        conn.execute(
+        # Migrate older DBs that predate sql_sha256.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(rule_version)").fetchall()}
+        if "sql_sha256" not in cols:
+            conn.execute("ALTER TABLE rule_version ADD COLUMN sql_sha256 TEXT NOT NULL DEFAULT ''")
+        row = conn.execute(
+            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256 "
+            "FROM rule_version WHERE rule_id = ? AND version = ?",
+            (rule.rule_id, rule.version),
+        ).fetchone()
+        if row is not None:
+            existing = {
+                "mode": row["mode"],
+                "params": json.loads(row["params"]),
+                "weight": float(row["weight"]),
+                "red_flag_ids": json.loads(row["red_flag_ids"]),
+                "sql_sha256": row["sql_sha256"] or "",
+            }
+            if json.dumps(existing, sort_keys=True) != json.dumps(definition, sort_keys=True):
+                raise RuleError(
+                    f"{rule.rule_id} version {rule.version} already stored with a different "
+                    "definition; bump version in rule.yaml"
+                )
+            return int(row["id"])
+        cur = conn.execute(
             """
-            INSERT INTO rule_version (rule_id, version, mode, params, weight, red_flag_ids)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (rule_id, version) DO UPDATE SET
-                mode = excluded.mode,
-                params = excluded.params,
-                weight = excluded.weight,
-                red_flag_ids = excluded.red_flag_ids
+            INSERT INTO rule_version
+                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 rule.rule_id,
                 rule.version,
-                rule.mode,
+                definition["mode"],
                 params_json,
-                float(rule.spec["weight"]),
+                definition["weight"],
                 flags_json,
+                sql_sha,
             ),
         )
-        row = conn.execute(
-            "SELECT id FROM rule_version WHERE rule_id = ? AND version = ?",
-            (rule.rule_id, rule.version),
-        ).fetchone()
-        return int(row["id"])
+        return int(cur.lastrowid)
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO rule_version (rule_id, version, mode, params, weight, red_flag_ids)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s::jsonb)
-            ON CONFLICT (rule_id, version) DO UPDATE SET
-                mode = EXCLUDED.mode,
-                params = EXCLUDED.params,
-                weight = EXCLUDED.weight,
-                red_flag_ids = EXCLUDED.red_flag_ids
+            ALTER TABLE rule_version ADD COLUMN IF NOT EXISTS sql_sha256 TEXT NOT NULL DEFAULT ''
+            """
+        )
+        cur.execute(
+            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256 "
+            "FROM rule_version WHERE rule_id = %s AND version = %s",
+            (rule.rule_id, rule.version),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            existing = {
+                "mode": row[1],
+                "params": row[2] if isinstance(row[2], dict) else json.loads(row[2]),
+                "weight": float(row[3]),
+                "red_flag_ids": row[4] if isinstance(row[4], list) else json.loads(row[4]),
+                "sql_sha256": row[5] or "",
+            }
+            if json.dumps(existing, sort_keys=True) != json.dumps(definition, sort_keys=True):
+                raise RuleError(
+                    f"{rule.rule_id} version {rule.version} already stored with a different "
+                    "definition; bump version in rule.yaml"
+                )
+            return int(row[0])
+        cur.execute(
+            """
+            INSERT INTO rule_version
+                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s::jsonb, %s)
             RETURNING id
             """,
             (
                 rule.rule_id,
                 rule.version,
-                rule.mode,
+                definition["mode"],
                 params_json,
-                float(rule.spec["weight"]),
+                definition["weight"],
                 flags_json,
+                sql_sha,
             ),
         )
         return int(cur.fetchone()[0])
@@ -422,6 +486,7 @@ def _upsert_hit(
 
 
 def _get_watermark(conn, store: str) -> datetime | None:
+    """Observability only: last booking_ts seen. Selection uses processed_entry ids."""
     if store == "sqlite":
         row = conn.execute("SELECT value FROM engine_state WHERE key = 'watermark'").fetchone()
         return datetime.fromisoformat(row["value"]) if row else None
@@ -447,6 +512,47 @@ def _set_watermark(conn, store: str, watermark: datetime) -> None:
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
             """,
             (value,),
+        )
+
+
+def _processed_entry_ids(conn, store: str) -> set[str]:
+    if store == "sqlite":
+        return {r[0] for r in conn.execute("SELECT entry_id FROM processed_entry").fetchall()}
+    with conn.cursor() as cur:
+        cur.execute("SELECT entry_id FROM processed_entry")
+        return {r[0] for r in cur.fetchall()}
+
+
+def _mark_entries_processed(conn, store: str, entry_ids: list[str]) -> None:
+    if not entry_ids:
+        return
+    if store == "sqlite":
+        conn.executemany(
+            "INSERT OR IGNORE INTO processed_entry (entry_id) VALUES (?)",
+            [(eid,) for eid in entry_ids],
+        )
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO processed_entry (entry_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            [(eid,) for eid in entry_ids],
+        )
+
+
+def _hit_identity_key(rule_version_id: int, row: dict[str, Any]) -> tuple:
+    business_day = row["business_day"]
+    if hasattr(business_day, "isoformat"):
+        business_day = business_day.isoformat()
+    return (rule_version_id, row["customer_id"], business_day, row["group_key"])
+
+
+def _assert_unique_hit_rows(rule: LoadedRule, rows: list[dict[str, Any]]) -> None:
+    """Fail before write when one rule execution returns duplicate HIT_IDENTITY keys."""
+    keys = [(r["customer_id"], r["business_day"], r["group_key"]) for r in rows]
+    if len(keys) != len(set(keys)):
+        raise RuleError(
+            f"{rule.rule_id}: duplicate hit identities in one execution; "
+            "rule.sql must return at most one row per (customer_id, business_day, group_key)"
         )
 
 
@@ -573,13 +679,36 @@ def run(
 
         asof_days: list[date] = []
         watermark_out: datetime | None = None
+        new_entry_ids: list[str] = []
 
         if since is not None:
-            wm = _get_watermark(conn, store) if since == "last" else datetime.fromisoformat(since)
-            if wm is None:
-                touched = duck.execute("SELECT DISTINCT business_date FROM entries").fetchall()
-                max_ts = duck.execute("SELECT max(booking_ts) FROM entries").fetchall()[0][0]
+            # Ingestion cursor: select by unseen entry_id (not booking_ts), so a late-arriving
+            # row booked earlier than the last watermark is still picked up. Explicit --since
+            # <iso> still filters by booking_ts for deliberate replay windows.
+            all_ids = [
+                r[0] for r in duck.execute("SELECT entry_id FROM entries").fetchall() if r[0]
+            ]
+            if since == "last":
+                seen = _processed_entry_ids(conn, store)
+                new_entry_ids = [eid for eid in all_ids if eid not in seen]
+                if new_entry_ids:
+                    duck.execute("CREATE TEMP TABLE _new_ids (entry_id VARCHAR)")
+                    duck.executemany(
+                        "INSERT INTO _new_ids VALUES (?)", [(eid,) for eid in new_entry_ids]
+                    )
+                    touched = duck.execute(
+                        "SELECT DISTINCT business_date FROM entries "
+                        "WHERE entry_id IN (SELECT entry_id FROM _new_ids)"
+                    ).fetchall()
+                    max_ts = duck.execute(
+                        "SELECT max(booking_ts) FROM entries "
+                        "WHERE entry_id IN (SELECT entry_id FROM _new_ids)"
+                    ).fetchall()[0][0]
+                else:
+                    touched = []
+                    max_ts = None
             else:
+                wm = datetime.fromisoformat(since)
                 touched = duck.execute(
                     "SELECT DISTINCT business_date FROM entries WHERE booking_ts > ?",
                     [wm],
@@ -588,6 +717,13 @@ def run(
                     "SELECT max(booking_ts) FROM entries WHERE booking_ts > ?",
                     [wm],
                 ).fetchall()[0][0]
+                new_entry_ids = [
+                    r[0]
+                    for r in duck.execute(
+                        "SELECT entry_id FROM entries WHERE booking_ts > ?", [wm]
+                    ).fetchall()
+                    if r[0]
+                ]
             # Entry on day D can change windowed hits on D .. D+(window-1); expand forward.
             base_days = {row[0] for row in touched if row[0] is not None}
             widest = _max_window_days(active)
@@ -614,7 +750,7 @@ def run(
         rule_version_manifest: list[dict[str, Any]] = []
 
         for rule in active:
-            vid = _upsert_rule_version(conn, rule, store)
+            vid = _ensure_rule_version(conn, rule, store)
             version_ids[(rule.rule_id, rule.version)] = vid
             rule_version_manifest.append(
                 {
@@ -627,25 +763,39 @@ def run(
             )
 
         hit_count = 0
+        seen_identities: set[tuple] = set()
         for asof in asof_days:
             for rule in active:
                 rows = _execute_rule(duck, rule, asof)
+                _assert_unique_hit_rows(rule, rows)
+                vid = version_ids[(rule.rule_id, rule.version)]
                 for row in rows:
                     if row.get("group_key") is None:
                         raise RuleError(f"{rule.rule_id}: group_key must never be NULL")
+                    identity = _hit_identity_key(vid, row)
+                    if identity in seen_identities:
+                        raise RuleError(
+                            f"{rule.rule_id}: duplicate hit identity {identity[1:]} across "
+                            "as-of days in one run"
+                        )
+                    seen_identities.add(identity)
                     _upsert_hit(
                         conn,
                         store=store,
                         run_id=run_id,
-                        rule_version_id=version_ids[(rule.rule_id, rule.version)],
+                        rule_version_id=vid,
                         row=row,
                     )
                     hits_by_rule[rule.rule_id].append(row)
                     hit_count += 1
 
-        # Watermark is the incremental cursor only; --day/--reconcile must not rewind it.
-        if mode == "since" and watermark_out is not None:
-            _set_watermark(conn, store, watermark_out)
+        # Ingestion cursor + observability watermark advance only on --since.
+        if mode == "since":
+            _mark_entries_processed(conn, store, new_entry_ids)
+            if watermark_out is not None:
+                prev = _get_watermark(conn, store)
+                if prev is None or watermark_out > prev:
+                    _set_watermark(conn, store, watermark_out)
 
         input_hashes = {
             "parquet": _file_sha256(parquet),
