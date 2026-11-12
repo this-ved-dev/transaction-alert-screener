@@ -1,0 +1,23 @@
+id: r05
+name: Rapid pass-through with account baseline
+owner: abdul
+version: 1
+mode: shadow
+key: account
+windows:
+  lookback_days: 94
+params:
+  min_inbound: 5000
+  outflow_ratio: 0.8
+  outflow_window_hours: 72
+  baseline_days: 90
+  quiet_ratio: 0.2
+weight: 4
+red_flag_ids: [RF-006]
+budget_per_month: 50
+tier_multipliers: {low: 1.0, medium: 1.0, high: 1.0}
+description: >
+  Flags an account receiving at least $5,000 when at least 80% leaves within 72 hours
+  to other counterparties. Quiet accounts use all eligible outflows; busy accounts
+  count only cross-border or new-beneficiary outflows. Baselines include zero days.
+  Remains shadow pending native tuning under budget and a client walkthrough.

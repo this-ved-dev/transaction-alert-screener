@@ -8,6 +8,6 @@
 5. Close a different alert with a reason; the audit log entry appears.
 6. Escalate as Analyst; approve as a different BSA Officer; show the self-approval block and the SAR clock.
 7. Admin console: propose dormant 180 → 120 days with a reason; backtest delta appears; a second officer approves; next run uses it.
-8. R5 in shadow: as-written flood vs tuned volume; the decision rule.
+8. R5 in shadow: as-written flood vs tuned volume; the decision rule. Until native tuning is available, show only the clearly labelled three-point synthetic comparison (`uv run pytest rules/r05_pass_through -k fixture_operating_points -s -q`); do not present fixture counts as bank alert volumes. Walk through the 72-hour interpretation with the client before any live switch.
 9. Export the audit trail for July and the one-page summary for a single account (every flag it ever had: date, rule, amount, decision); open the CSV.
 10. Evaluation page: volume vs budget, precision, recall, lift per rule. Close with cost, friction, roadmap (streaming lane, screening, full agentic triage in a 90-day shadow pilot).

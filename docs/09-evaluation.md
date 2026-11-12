@@ -13,7 +13,7 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | R02 | | | | | | | | |
 | R03 | | | | | | | | |
 | R04 | | | | | | | | |
-| R05 | | | | | | | | |
+| R05 | shadow | Pending native tuning | Not computed on native data | 100% injected (10/10) | Not computed | Synthetic answer key; native label evaluation pending | Fixtures only | See R05 commands below |
 | R06 | | | | | | | | |
 | R07 | | | | | | | | |
 | R08 | | | | | | | | |
@@ -84,3 +84,39 @@ date endpoints, 90-date history endpoints, old senders with prior large payments
 senders, own-account exclusions, eligibility, both booked legs, variant hit identities, and
 seeded label-blind injection. Pytest now uses importlib mode so multiple rule folders can each
 contain `test_rule.py` without module-name collisions.
+
+### R05 fixture comparison and native tuning still required (TRA-33)
+
+Run `uv run pytest rules/r05_pass_through tests/test_contracts.py -q` for boundaries and
+injection, and `uv run pytest rules/r05_pass_through -k fixture_operating_points -s -q` to
+reproduce the comparison below. These are **four constructed synthetic cases**, not a SAML-D
+backtest: quiet/established-beneficiary (positive), busy/established-beneficiary (negative),
+busy/cross-border (positive), and busy/new-beneficiary (positive). All clear the same inbound,
+80% ratio, 72-hour and different-counterparty conditions. Only the baseline gate varies.
+
+| Fixture operating point | Hits | Positive cases detected (of 3) | Negative cases flagged (of 1) | Fixture precision | Fixture recall |
+|---|---|---|---|---|---|
+| No baseline/risk gate | 4 | 3 | 1 | 75% | 100% |
+| Quiet-account gate only | 1 | 1 | 0 | 100% | 33.33% |
+| Quiet OR XBCT OR new beneficiary (implemented) | 3 | 3 | 0 | 100% | 100% |
+
+Separately, the seeded injector's ten positive quiet-account cases are all detected (10/10).
+This proves fixture behavior and injected recall only. It does not replace the ticket's
+required native three-operating-point tuning table or establish a production precision rate.
+
+**Remaining gates:** TRA-24 and TRA-30 must supply canonical data with both booked legs,
+customer mapping, consistent bank-local timestamps and disclosed observation coverage. Then
+measure at least three native operating points against Deposit-Send, Layered_Fan_Out and
+Gather-Scatter using chronological tuning/validation. Record account-day volume scaled to
+100k accounts, precision/recall/lift under the agreed evaluation unit, the client walkthrough
+of the 72-hour interpretation, and a live/shadow decision. The unified `screener evaluate`
+command belongs to TRA-40. **R05 remains shadow**: no current native budget claim is made.
+
+Implementation semantics: zero-filled median daily eligible payment volume over the 90 dates
+before the inbound; quiet means strictly below 20% of its amount. Busy accounts count only
+the XBCT/new-beneficiary outflow amounts toward the 80% threshold. Prior history includes
+the exact 90-day timestamp boundary. Unknown observation history does not imply quietness or
+beneficiary newness. Per-account-day evidence retains each qualifying inbound separately and
+deduplicates matched IDs; overlapping anchor windows are not unique fund tracing. This
+conservative interpretation and the baseline's ledger-wide observation proxy require the
+client walkthrough and later coverage metadata before live use.
