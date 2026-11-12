@@ -147,9 +147,49 @@ def test_run_day_writes_hits_manifest_and_rejected_count(tmp_path):
     assert "r11" in manifest["rules_run"]
     assert manifest["rejected_count"] == len(fx.BREAKS)
     assert manifest["input_hashes"]["parquet"]
+    assert manifest["input_hashes"]["country_risk"]
+    assert manifest["input_hashes"]["holidays"]
     assert Path(db).exists()
     modes = {row["mode"] for row in manifest["rule_versions"]}
     assert modes == {"live", "shadow"}
+
+
+def test_manifest_hashes_change_when_country_risk_changes(tmp_path):
+    """Reference inputs must be in the manifest: changing country risk changes the hash."""
+    rules_root = _live_rules_copy(tmp_path, "r00_example")
+    db = tmp_path / "ref.sqlite"
+    risk_a = tmp_path / "country_risk_a.csv"
+    risk_b = tmp_path / "country_risk_b.csv"
+    holidays = ROOT / "data" / "reference" / "holidays_us.csv"
+    risk_a.write_text(
+        "country_iso2,country_name,tier,source,effective_from,effective_to,verified_on,source_url,note\n"
+        "MX,Mexico,grey,test,2022-01-01,,,https://example.test/,a\n"
+    )
+    risk_b.write_text(
+        "country_iso2,country_name,tier,source,effective_from,effective_to,verified_on,source_url,note\n"
+        "MX,Mexico,black,test,2022-01-01,,,https://example.test/,b\n"
+    )
+    first = run(
+        day=fx.DEMO_DAY,
+        store="sqlite",
+        sqlite_path=db,
+        parquet=fx.OUT,
+        rules_dir=rules_root,
+        country_risk=risk_a,
+        holidays=holidays,
+    )
+    second = run(
+        day=fx.DEMO_DAY,
+        store="sqlite",
+        sqlite_path=db,
+        parquet=fx.OUT,
+        rules_dir=rules_root,
+        country_risk=risk_b,
+        holidays=holidays,
+    )
+    assert first["input_hashes"]["parquet"] == second["input_hashes"]["parquet"]
+    assert first["input_hashes"]["holidays"] == second["input_hashes"]["holidays"]
+    assert first["input_hashes"]["country_risk"] != second["input_hashes"]["country_risk"]
 
 
 def test_default_run_skips_off_but_still_loads_r00_example(tmp_path):

@@ -714,6 +714,8 @@ def run(
     sqlite_path: Path = DEFAULT_SQLITE,
     parquet: Path = FIXTURE_PATH,
     rules_dir: Path = RULES_DIR,
+    country_risk: Path = COUNTRY_RISK_PATH,
+    holidays: Path = HOLIDAYS_PATH,
     include_off: bool = False,
 ) -> dict[str, Any]:
     """Run live/shadow rules (and optionally ``off``), upsert hits, write a run manifest.
@@ -743,7 +745,7 @@ def run(
     run_id = str(uuid.uuid4())
 
     entries, rejected_count = _load_entries(parquet)
-    duck = _open_duckdb(entries)
+    duck = _open_duckdb(entries, country_risk=country_risk, holidays=holidays)
     conn = _connect_store(store, sqlite_path)
 
     try:
@@ -875,6 +877,8 @@ def run(
 
         input_hashes = {
             "parquet": _file_sha256(parquet),
+            "country_risk": _file_sha256(country_risk),
+            "holidays": _file_sha256(holidays),
             "rules": {
                 r.path.name: {
                     "rule.yaml": _file_sha256(r.path / "rule.yaml"),
