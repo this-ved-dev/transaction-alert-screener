@@ -24,6 +24,15 @@ Version 1 is implemented against the six-column TRA-6 contract. Both variants re
   both legs exist. Receiver credit legs are required for the funnel; a sender-only export
   needs enrichment before that variant can operate.
 
+**Version-1 coverage limitation.** Pair variant a monitors an originator for whom the bank
+books debit entries. Three $4,000 payments from one external originator, visible only as
+credits to our customer, do not trigger a; one sender also fails b's five-sender minimum.
+This is a known gap, not a claim that all inbound splitting is covered. The SAML-D measurement
+projects both legs, so its variant-a results cannot establish coverage on a credit-only feed.
+Broadening a requires an explicit choice to report the receiving customer and avoid counting
+an internal transfer twice; it needs a rule-version change, inbound-only tests and fresh
+volume measurement. This review update preserves the measured version-1 SQL and shadow mode.
+
 `inject(df, rng, n=10)` appends ten seeded, isolated positive **pair** cases and an answer key.
 It never reads the typology labels. Funnel behavior and new-sender history are tested with
 explicit canonical boundary fixtures in `test_rule.py`.

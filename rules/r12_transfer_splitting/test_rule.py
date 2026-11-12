@@ -92,7 +92,8 @@ def test_pair_window_and_future_exclusion(age, fires):
 
 
 def funnel(old=0, senders=5, history_age=7):
-    rows = [entry(i, sender=f"S{i}", direction="CRDT", amount="2500") for i in range(senders)]
+    # Even four senders clear the total threshold, isolating the distinct-sender count.
+    rows = [entry(i, sender=f"S{i}", direction="CRDT", amount="3000") for i in range(senders)]
     rows += [
         entry(
             100 + i,
@@ -114,6 +115,23 @@ def test_funnel_distinct_and_new_sender_boundaries(senders, old, fires):
         assert hits[0]["customer_id"] == "C:B"
         assert hits[0]["group_key"] == "b:B"
         assert hits[0]["computed_values"]["new_sender_count"] == senders - old
+
+
+def test_funnel_quiet_day_does_not_repeat_a_qualifying_window():
+    assert run(funnel())  # Positive control: all count, newness and total conditions pass.
+    rows = [
+        entry(i, sender=f"S{i}", direction="CRDT", amount="3000", day=DAY - timedelta(days=1))
+        for i in range(5)
+    ]
+    assert not run(rows)
+
+
+@pytest.mark.parametrize("amount,fires", [("9999.99", True), ("10000", False), ("10000.01", False)])
+def test_funnel_single_entry_cap_is_enforced(amount, fires):
+    rows = funnel()
+    # Four remaining $3,000 entries still clear the total and new-sender thresholds.
+    rows[-1]["amount"] = Decimal(amount)
+    assert bool(run(rows)) == fires
 
 
 @pytest.mark.parametrize("age,fires", [(96, False), (97, True)])
