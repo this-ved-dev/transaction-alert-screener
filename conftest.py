@@ -1,1 +1,1 @@
-"""Repo-root conftest (kept empty). Fixtures live in ``tests/conftest.py`` and ``rules/conftest.py``."""
+"""Repo-root conftest (empty). Fixtures: tests/conftest.py, rules/conftest.py."""

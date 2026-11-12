@@ -130,7 +130,7 @@ def apply_tier_multipliers(params: dict[str, Any], tier_multipliers: dict[str, f
     out: dict[str, Any] = {}
     for key, value in params.items():
         scale = (
-            isinstance(value, (int, float))
+            isinstance(value, int | float)
             and not isinstance(value, bool)
             and ("threshold" in key or key.endswith("_usd") or "amount" in key)
         )
@@ -369,7 +369,7 @@ def _upsert_hit(
     else:
         matched_json = json.dumps(list(matched) if matched is not None else [])
     computed = row["computed_values"]
-    if isinstance(computed, (dict, list)):
+    if isinstance(computed, dict | list):
         computed_json = json.dumps(computed)
     elif isinstance(computed, str):
         computed_json = computed
