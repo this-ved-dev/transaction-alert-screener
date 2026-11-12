@@ -30,6 +30,7 @@ build/
 # django
 app/**/staticfiles/
 db.sqlite3
+*.sqlite
 # os / editors
 .DS_Store
 .idea/

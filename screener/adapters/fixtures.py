@@ -33,10 +33,6 @@ OUR_AGENT = {"routing": "999999999", "bic": None, "country": "US"}
 XB_COUNTRIES = ("CA", "GB", "IN", "MX", "AE", "NG", "TR", "IR")  # includes country_risk.csv rows
 AMOUNTS = {"WIRE_ROOM": (1_000, 50_000), "POS": (5, 500), "MOBILE": (10, 1_000), "SYSTEM": (1, 35)}
 MCCS = ("5411", "5541", "5812", "5999")
-HOLIDAYS = {
-    date.fromisoformat(r["date"])
-    for r in csv.DictReader((DATA / "reference" / "holidays_us.csv").open())
-}
 MEMOS = ["rent", "invoice 2231", "payroll", "gift", "car repair"] + [
     r["memo"] for r in csv.DictReader((DATA / "fixtures" / "hostile_memos.csv").open())
 ]
@@ -51,10 +47,9 @@ BREAKS = (  # one field each that schema.validate must reject
 
 
 def business_date(d: date) -> date:
-    # shortcut: local weekend/holiday roll-forward; use screener.calendar once TRA-21 lands
-    while d.weekday() >= 5 or d in HOLIDAYS:
-        d += timedelta(days=1)
-    return d
+    from screener.calendar import business_day  # noqa: PLC0415
+
+    return business_day(d)
 
 
 def _notes(dollars: int) -> list[dict]:
