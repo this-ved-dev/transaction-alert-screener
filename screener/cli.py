@@ -49,7 +49,9 @@ def run_cmd(
     if store not in ("sqlite", "postgres"):
         raise typer.BadParameter("store must be sqlite or postgres")
     if day is None and since is None:
-        raise typer.BadParameter("pass --day and/or --since")
+        raise typer.BadParameter("pass --day or --since")
+    if day is not None and since is not None:
+        raise typer.BadParameter("pass --day or --since, not both")
     asof = date.fromisoformat(day) if day else None
     try:
         manifest = run(

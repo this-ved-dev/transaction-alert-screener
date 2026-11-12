@@ -4,6 +4,10 @@ Design: rules are SQL templates in ``rules/r??_*/``; the engine globs the folder
 renders Jinja params (StrictUndefined), runs DuckDB over canonical Parquet, and
 upserts hits on ``schema.HIT_IDENTITY``. Adding a rule never requires touching
 shared code. Consolidation/alerts are TRA-22; backtest is TRA-23.
+
+Soft-retract (append-only evidence): when a re-evaluated (rule_version_id, business_day)
+no longer produces a hit, set ``retracted_run_id`` instead of deleting. TRA-22 must ignore
+rows where ``retracted_run_id IS NOT NULL``.
 """
 
 from __future__ import annotations
@@ -31,7 +35,6 @@ from screener.adapters import fixtures as fx
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_DIR = ROOT / "rules"
-SCHEMA_PATH = RULES_DIR / "_schema" / "rule.schema.json"
 FIXTURE_PATH = ROOT / "data" / "fixtures" / "fixture.parquet"
 COUNTRY_RISK_PATH = ROOT / "data" / "reference" / "country_risk.csv"
 HOLIDAYS_PATH = ROOT / "data" / "reference" / "holidays_us.csv"
@@ -79,23 +82,22 @@ class FixtureRun:
         return list(self._hits.get(rule_id, []))
 
 
-def _rule_schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text())
+def _rule_schema(rules_dir: Path = RULES_DIR) -> dict:
+    return json.loads((rules_dir / "_schema" / "rule.schema.json").read_text())
 
 
 def discover_rules(rules_dir: Path = RULES_DIR) -> list[Path]:
     """Return ``rules/r??_*/`` folders that contain a ``rule.yaml``, sorted by name."""
     if not rules_dir.is_dir():
         return []
-    found = [
+    return [
         p
         for p in sorted(rules_dir.iterdir())
         if p.is_dir() and RULE_DIR_RE.match(p.name) and (p / "rule.yaml").exists()
     ]
-    return found
 
 
-def load_rule(rule_dir: Path) -> LoadedRule:
+def load_rule(rule_dir: Path, *, rules_dir: Path | None = None) -> LoadedRule:
     """Validate ``rule.yaml`` against the JSON schema and load ``rule.sql``."""
     yaml_path = rule_dir / "rule.yaml"
     sql_path = rule_dir / "rule.sql"
@@ -107,7 +109,8 @@ def load_rule(rule_dir: Path) -> LoadedRule:
         spec = yaml.safe_load(yaml_path.read_text())
     except yaml.YAMLError as e:
         raise RuleError(f"{rule_dir.name}: invalid YAML: {e}") from e
-    errors = sorted(Draft202012Validator(_rule_schema()).iter_errors(spec), key=str)
+    schema_root = rules_dir if rules_dir is not None else RULES_DIR
+    errors = sorted(Draft202012Validator(_rule_schema(schema_root)).iter_errors(spec), key=str)
     if errors:
         messages = "; ".join(e.message for e in errors)
         raise RuleError(f"{rule_dir.name}: invalid rule.yaml: {messages}")
@@ -119,10 +122,16 @@ def load_rule(rule_dir: Path) -> LoadedRule:
 
 
 def apply_tier_multipliers(params: dict[str, Any], tier_multipliers: dict[str, float]) -> dict:
-    """Apply the default (medium) tier multiplier to monetary params.
+    """Apply the default (medium) tier multiplier to monetary-looking params.
 
     Client thresholds are flat (1.0/1.0/1.0), so this is a no-op until the admin
     console sets non-unit multipliers. Counts/windows stay intact.
+
+    TRA-39: statutory params (e.g. R01 CTR ``threshold_usd`` = $10,000) must never
+    scale with tier multipliers — add an explicit allowlist/denylist there before
+    non-flat multipliers ship. Today every customer is also stubbed as risk_tier
+    ``low`` while this function applies the ``medium`` factor; wire real tiers and
+    the matching factor together in TRA-39.
     """
     factor = float(tier_multipliers.get("medium", 1.0))
     if factor == 1.0:
@@ -170,10 +179,12 @@ def _open_duckdb(
     holidays: Path = HOLIDAYS_PATH,
 ) -> duckdb.DuckDBPyConnection:
     """DuckDB with views rules may read: entries (no typology_label), customers, refs."""
-    con = duckdb.connect()
+    con = duckdb.connect(config={"enable_external_access": False})
     cols = [c for c in entries_table.column_names if c != "typology_label"]
     con.register("_entries_arrow", entries_table.select(cols))
     con.execute("CREATE VIEW entries AS SELECT * FROM _entries_arrow")
+    # Stub: every customer is 'low' until TRA-13/reference data lands. apply_tier_multipliers
+    # still uses the medium factor today (flat 1.0); TRA-39 must align factor with risk_tier.
     con.execute(
         "CREATE VIEW customers AS SELECT DISTINCT cif_id, 'low'::VARCHAR AS risk_tier FROM entries"
     )
@@ -182,9 +193,6 @@ def _open_duckdb(
     con.execute("CREATE VIEW country_risk AS SELECT * FROM _country_risk")
     con.execute("CREATE VIEW holidays AS SELECT * FROM _holidays")
     return con
-
-
-# --- persistence (SQLite; Postgres wired later via DATABASE_URL) -----------------
 
 
 def _connect_store(store: Literal["sqlite", "postgres"], sqlite_path: Path) -> Any:
@@ -199,8 +207,9 @@ def _connect_store(store: Literal["sqlite", "postgres"], sqlite_path: Path) -> A
         conn = psycopg.connect(url)
         _ensure_schema_postgres(conn)
         return conn
-    sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(sqlite_path)
+    if str(sqlite_path) != ":memory:":
+        sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(sqlite_path))
     conn.row_factory = sqlite3.Row
     _ensure_schema_sqlite(conn)
     return conn
@@ -217,8 +226,8 @@ def _ensure_schema_sqlite(conn: sqlite3.Connection) -> None:
             params TEXT NOT NULL,
             weight REAL NOT NULL,
             red_flag_ids TEXT NOT NULL,
-            sql_sha256 TEXT NOT NULL DEFAULT '',
-            tier_multipliers TEXT NOT NULL DEFAULT '{}',
+            sql_sha256 TEXT NOT NULL,
+            tier_multipliers TEXT NOT NULL,
             UNIQUE (rule_id, version)
         );
         CREATE TABLE IF NOT EXISTS run (
@@ -245,6 +254,7 @@ def _ensure_schema_sqlite(conn: sqlite3.Connection) -> None:
             group_key TEXT NOT NULL,
             matched_txn_ids TEXT NOT NULL,
             computed_values TEXT NOT NULL,
+            retracted_run_id TEXT,
             UNIQUE (rule_version_id, customer_id, business_day, group_key)
         );
         CREATE TABLE IF NOT EXISTS engine_state (
@@ -271,17 +281,17 @@ def _ensure_schema_postgres(conn) -> None:
                 params JSONB NOT NULL,
                 weight DOUBLE PRECISION NOT NULL,
                 red_flag_ids JSONB NOT NULL,
-                sql_sha256 TEXT NOT NULL DEFAULT '',
-                tier_multipliers JSONB NOT NULL DEFAULT '{}'::jsonb,
+                sql_sha256 TEXT NOT NULL,
+                tier_multipliers JSONB NOT NULL,
                 UNIQUE (rule_id, version)
             );
             CREATE TABLE IF NOT EXISTS run (
                 id TEXT PRIMARY KEY,
                 asof_day DATE,
                 mode TEXT NOT NULL,
-                watermark TIMESTAMPTZ,
-                started_at TIMESTAMPTZ NOT NULL,
-                finished_at TIMESTAMPTZ NOT NULL,
+                watermark TIMESTAMP,
+                started_at TIMESTAMP NOT NULL,
+                finished_at TIMESTAMP NOT NULL,
                 duration_ms INTEGER NOT NULL,
                 input_hashes JSONB NOT NULL,
                 rule_versions JSONB NOT NULL,
@@ -299,16 +309,17 @@ def _ensure_schema_postgres(conn) -> None:
                 group_key TEXT NOT NULL,
                 matched_txn_ids JSONB NOT NULL,
                 computed_values JSONB NOT NULL,
+                retracted_run_id TEXT,
                 UNIQUE (rule_version_id, customer_id, business_day, group_key)
             );
-        CREATE TABLE IF NOT EXISTS engine_state (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS processed_entry (
-            entry_id TEXT PRIMARY KEY
-        );
-        """
+            CREATE TABLE IF NOT EXISTS engine_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS processed_entry (
+                entry_id TEXT PRIMARY KEY
+            );
+            """
         )
     conn.commit()
 
@@ -331,45 +342,26 @@ def _rule_definition(rule: LoadedRule) -> dict[str, Any]:
 
 
 def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
-    """Insert rule_version, or reuse it when the definition is identical.
-
-    Rejects silent mutation: the same (rule_id, version) with different params/SQL/mode
-    fails fast so hits keep citing the definition they fired under.
-    """
+    """Insert rule_version, or reuse it when the definition is identical."""
     definition = _rule_definition(rule)
     params_json = json.dumps(definition["params"], sort_keys=True)
     tiers_json = json.dumps(definition["tier_multipliers"], sort_keys=True)
     flags_json = json.dumps(definition["red_flag_ids"])
     sql_sha = definition["sql_sha256"]
     if store == "sqlite":
-        # Migrate older DBs that predate sql_sha256 / tier_multipliers columns.
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(rule_version)").fetchall()}
-        if "sql_sha256" not in cols:
-            conn.execute("ALTER TABLE rule_version ADD COLUMN sql_sha256 TEXT NOT NULL DEFAULT ''")
-        if "tier_multipliers" not in cols:
-            conn.execute(
-                "ALTER TABLE rule_version ADD COLUMN tier_multipliers TEXT NOT NULL DEFAULT '{}'"
-            )
         row = conn.execute(
             "SELECT id, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers "
             "FROM rule_version WHERE rule_id = ? AND version = ?",
             (rule.rule_id, rule.version),
         ).fetchone()
         if row is not None:
-            stored_tiers = json.loads(row["tier_multipliers"] or "{}")
-            if not stored_tiers:
-                stored_tiers = {"low": 1.0, "medium": 1.0, "high": 1.0}
             existing = {
                 "mode": row["mode"],
                 "params": json.loads(row["params"]),
-                "tier_multipliers": {
-                    "low": float(stored_tiers.get("low", 1.0)),
-                    "medium": float(stored_tiers.get("medium", 1.0)),
-                    "high": float(stored_tiers.get("high", 1.0)),
-                },
+                "tier_multipliers": json.loads(row["tier_multipliers"]),
                 "weight": float(row["weight"]),
                 "red_flag_ids": json.loads(row["red_flag_ids"]),
-                "sql_sha256": row["sql_sha256"] or "",
+                "sql_sha256": row["sql_sha256"],
             }
             if json.dumps(existing, sort_keys=True) != json.dumps(definition, sort_keys=True):
                 raise RuleError(
@@ -397,37 +389,19 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
         return int(cur.lastrowid)
     with conn.cursor() as cur:
         cur.execute(
-            """
-            ALTER TABLE rule_version ADD COLUMN IF NOT EXISTS sql_sha256 TEXT NOT NULL DEFAULT ''
-            """
-        )
-        cur.execute(
-            """
-            ALTER TABLE rule_version
-            ADD COLUMN IF NOT EXISTS tier_multipliers JSONB NOT NULL DEFAULT '{}'::jsonb
-            """
-        )
-        cur.execute(
             "SELECT id, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers "
             "FROM rule_version WHERE rule_id = %s AND version = %s",
             (rule.rule_id, rule.version),
         )
         row = cur.fetchone()
         if row is not None:
-            stored_tiers = row[6] if isinstance(row[6], dict) else json.loads(row[6] or "{}")
-            if not stored_tiers:
-                stored_tiers = {"low": 1.0, "medium": 1.0, "high": 1.0}
             existing = {
                 "mode": row[1],
                 "params": row[2] if isinstance(row[2], dict) else json.loads(row[2]),
-                "tier_multipliers": {
-                    "low": float(stored_tiers.get("low", 1.0)),
-                    "medium": float(stored_tiers.get("medium", 1.0)),
-                    "high": float(stored_tiers.get("high", 1.0)),
-                },
+                "tier_multipliers": row[6] if isinstance(row[6], dict) else json.loads(row[6]),
                 "weight": float(row[3]),
                 "red_flag_ids": row[4] if isinstance(row[4], list) else json.loads(row[4]),
-                "sql_sha256": row[5] or "",
+                "sql_sha256": row[5],
             }
             if json.dumps(existing, sort_keys=True) != json.dumps(definition, sort_keys=True):
                 raise RuleError(
@@ -464,11 +438,7 @@ def _upsert_hit(
     rule_version_id: int,
     row: dict[str, Any],
 ) -> None:
-    matched = row["matched_txn_ids"]
-    if isinstance(matched, list):
-        matched_json = json.dumps(list(matched))
-    else:
-        matched_json = json.dumps(list(matched) if matched is not None else [])
+    matched_json = json.dumps(list(row["matched_txn_ids"] or []))
     computed = row["computed_values"]
     if isinstance(computed, dict | list):
         computed_json = json.dumps(computed)
@@ -494,13 +464,14 @@ def _upsert_hit(
             """
             INSERT INTO hit (
                 run_id, rule_version_id, customer_id, account_id, business_day,
-                group_key, matched_txn_ids, computed_values
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                group_key, matched_txn_ids, computed_values, retracted_run_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
             ON CONFLICT (rule_version_id, customer_id, business_day, group_key) DO UPDATE SET
                 run_id = excluded.run_id,
                 account_id = excluded.account_id,
                 matched_txn_ids = excluded.matched_txn_ids,
-                computed_values = excluded.computed_values
+                computed_values = excluded.computed_values,
+                retracted_run_id = NULL
             """,
             vals,
         )
@@ -510,16 +481,71 @@ def _upsert_hit(
             """
             INSERT INTO hit (
                 run_id, rule_version_id, customer_id, account_id, business_day,
-                group_key, matched_txn_ids, computed_values
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                group_key, matched_txn_ids, computed_values, retracted_run_id
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NULL)
             ON CONFLICT (rule_version_id, customer_id, business_day, group_key) DO UPDATE SET
                 run_id = EXCLUDED.run_id,
                 account_id = EXCLUDED.account_id,
                 matched_txn_ids = EXCLUDED.matched_txn_ids,
-                computed_values = EXCLUDED.computed_values
+                computed_values = EXCLUDED.computed_values,
+                retracted_run_id = NULL
             """,
             vals,
         )
+
+
+def _retract_stale_hits(
+    conn,
+    *,
+    store: str,
+    run_id: str,
+    rule_version_id: int,
+    business_day: date | str,
+    kept_group_keys: set[tuple[str, str]],
+) -> int:
+    """Soft-retract hits for (rule_version_id, business_day) not produced this run.
+
+    ``kept_group_keys`` is a set of (customer_id, group_key). Returns how many rows
+    were newly retracted. TRA-22 must ignore ``retracted_run_id IS NOT NULL``.
+    """
+    day = business_day.isoformat() if hasattr(business_day, "isoformat") else str(business_day)
+    if store == "sqlite":
+        rows = conn.execute(
+            "SELECT customer_id, group_key FROM hit "
+            "WHERE rule_version_id = ? AND business_day = ? AND retracted_run_id IS NULL",
+            (rule_version_id, day),
+        ).fetchall()
+        stale = [
+            (run_id, rule_version_id, r["customer_id"], day, r["group_key"])
+            for r in rows
+            if (r["customer_id"], r["group_key"]) not in kept_group_keys
+        ]
+        conn.executemany(
+            "UPDATE hit SET retracted_run_id = ? "
+            "WHERE rule_version_id = ? AND customer_id = ? AND business_day = ? "
+            "AND group_key = ? AND retracted_run_id IS NULL",
+            stale,
+        )
+        return len(stale)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT customer_id, group_key FROM hit "
+            "WHERE rule_version_id = %s AND business_day = %s AND retracted_run_id IS NULL",
+            (rule_version_id, day),
+        )
+        rows = cur.fetchall()
+        stale = [
+            (run_id, rule_version_id, r[0], day, r[1])
+            for r in rows
+            if (r[0], r[1]) not in kept_group_keys
+        ]
+        cur.executemany(
+            "UPDATE hit SET retracted_run_id = %s "
+            "WHERE rule_version_id = %s AND customer_id = %s AND business_day = %s "
+            "AND group_key = %s AND retracted_run_id IS NULL",
+            stale,
+        )
+        return len(stale)
 
 
 def _get_watermark(conn, store: str) -> datetime | None:
@@ -574,13 +600,6 @@ def _mark_entries_processed(conn, store: str, entry_ids: list[str]) -> None:
             "INSERT INTO processed_entry (entry_id) VALUES (%s) ON CONFLICT DO NOTHING",
             [(eid,) for eid in entry_ids],
         )
-
-
-def _hit_identity_key(rule_version_id: int, row: dict[str, Any]) -> tuple:
-    business_day = row["business_day"]
-    if hasattr(business_day, "isoformat"):
-        business_day = business_day.isoformat()
-    return (rule_version_id, row["customer_id"], business_day, row["group_key"])
 
 
 def _assert_unique_hit_rows(rule: LoadedRule, rows: list[dict[str, Any]]) -> None:
@@ -646,6 +665,14 @@ def _parse_hit_row(columns: list[str], raw: tuple) -> dict[str, Any]:
     return row
 
 
+def _normalize_business_day(value: Any) -> date:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    return date.fromisoformat(str(value))
+
+
 def _execute_rule(
     duck: duckdb.DuckDBPyConnection, rule: LoadedRule, asof: date
 ) -> list[dict[str, Any]]:
@@ -662,13 +689,20 @@ def _execute_rule(
         raise RuleError(
             f"{rule.rule_id}: SQL must return {schema.HIT_COLUMNS}, got {tuple(rel.columns)}"
         )
-    return [_parse_hit_row(list(rel.columns), r) for r in rel.fetchall()]
+    rows = [_parse_hit_row(list(rel.columns), r) for r in rel.fetchall()]
+    for row in rows:
+        if _normalize_business_day(row["business_day"]) != asof:
+            raise RuleError(
+                f"{rule.rule_id}: business_day must equal asof ({asof.isoformat()}); "
+                f"got {row['business_day']!r}"
+            )
+    return rows
 
 
-def _load_entries(parquet: Path):
+def _load_entries(parquet: Path) -> tuple[Any, int]:
     table = pq.read_table(parquet)
-    valid, _rejected = schema.validate(table)
-    return valid
+    valid, rejected = schema.validate(table)
+    return valid, len(rejected)
 
 
 def run(
@@ -688,10 +722,12 @@ def run(
     -----
     * ``--day``: evaluate every rule for that business day (full entries look-back).
     * ``--since``: incremental; re-evaluate customer-days touched by new entries.
-    * ``--reconcile``: nightly full-day pass (same compute as ``--day``, flagged in manifest).
+    * ``--reconcile``: nightly full-day pass; soft-retracts hits that no longer fire.
     """
     if day is None and since is None:
         raise RuleError("pass --day and/or --since")
+    if day is not None and since is not None:
+        raise RuleError("pass --day or --since, not both")
     if reconcile and day is None:
         raise RuleError("--reconcile requires --day")
 
@@ -706,12 +742,16 @@ def run(
     started_at = datetime.now().isoformat(timespec="seconds")
     run_id = str(uuid.uuid4())
 
-    entries = _load_entries(parquet)
+    entries, rejected_count = _load_entries(parquet)
     duck = _open_duckdb(entries)
     conn = _connect_store(store, sqlite_path)
 
     try:
-        rules = [load_rule(p) for p in discover_rules(rules_dir)]
+        rules = [load_rule(p, rules_dir=rules_dir) for p in discover_rules(rules_dir)]
+        ids = [r.rule_id for r in rules]
+        if len(ids) != len(set(ids)):
+            dupes = sorted({i for i in ids if ids.count(i) > 1})
+            raise RuleError(f"duplicate rule id(s) across folders: {', '.join(dupes)}")
         active = [r for r in rules if include_off or r.mode in ("live", "shadow")]
 
         asof_days: list[date] = []
@@ -719,9 +759,9 @@ def run(
         new_entry_ids: list[str] = []
 
         if since is not None:
-            # Ingestion cursor: select by unseen entry_id (not booking_ts), so a late-arriving
-            # row booked earlier than the last watermark is still picked up. Explicit --since
-            # <iso> still filters by booking_ts for deliberate replay windows.
+            # Ingestion cursor: unseen entry_id (not booking_ts), so late-arriving rows
+            # booked earlier than the last watermark are still picked up. Explicit
+            # --since <iso> still filters by booking_ts for deliberate replay.
             all_ids = [
                 r[0] for r in duck.execute("SELECT entry_id FROM entries").fetchall() if r[0]
             ]
@@ -761,7 +801,6 @@ def run(
                     ).fetchall()
                     if r[0]
                 ]
-            # Entry on day D can change windowed hits on D .. D+(window-1); expand forward.
             base_days = {row[0] for row in touched if row[0] is not None}
             widest = _max_window_days(active)
             data_end = duck.execute("SELECT max(business_date) FROM entries").fetchall()[0][0]
@@ -777,9 +816,6 @@ def run(
                     max_ts if isinstance(max_ts, datetime) else datetime.fromisoformat(str(max_ts))
                 )
         elif day is not None:
-            asof_days = [day]
-
-        if not asof_days and day is not None:
             asof_days = [day]
 
         hits_by_rule: dict[str, list[dict[str, Any]]] = {r.rule_id: [] for r in active}
@@ -800,22 +836,17 @@ def run(
             )
 
         hit_count = 0
-        seen_identities: set[tuple] = set()
+        retracted_count = 0
         for asof in asof_days:
             for rule in active:
                 rows = _execute_rule(duck, rule, asof)
                 _assert_unique_hit_rows(rule, rows)
                 vid = version_ids[(rule.rule_id, rule.version)]
+                kept: set[tuple[str, str]] = set()
                 for row in rows:
                     if row.get("group_key") is None:
                         raise RuleError(f"{rule.rule_id}: group_key must never be NULL")
-                    identity = _hit_identity_key(vid, row)
-                    if identity in seen_identities:
-                        raise RuleError(
-                            f"{rule.rule_id}: duplicate hit identity {identity[1:]} across "
-                            "as-of days in one run"
-                        )
-                    seen_identities.add(identity)
+                    kept.add((row["customer_id"], row["group_key"]))
                     _upsert_hit(
                         conn,
                         store=store,
@@ -825,8 +856,16 @@ def run(
                     )
                     hits_by_rule[rule.rule_id].append(row)
                     hit_count += 1
+                # Each asof covers exactly one business_day per rule_version (business_day==asof).
+                retracted_count += _retract_stale_hits(
+                    conn,
+                    store=store,
+                    run_id=run_id,
+                    rule_version_id=vid,
+                    business_day=asof,
+                    kept_group_keys=kept,
+                )
 
-        # Ingestion cursor + observability watermark advance only on --since.
         if mode == "since":
             _mark_entries_processed(conn, store, new_entry_ids)
             if watermark_out is not None:
@@ -860,7 +899,9 @@ def run(
             "input_hashes": input_hashes,
             "rule_versions": rule_version_manifest,
             "hit_count": hit_count,
+            "retracted_count": retracted_count,
             "entry_count": entries.num_rows,
+            "rejected_count": rejected_count,
             "rules_run": [r.rule_id for r in active],
             "store": store,
         }
@@ -881,13 +922,7 @@ def run_fixtures(
     sqlite_path: Path | None = None,
 ) -> FixtureRun:
     """Session helper for tests: run every rule folder (including ``off``) on the fixture day."""
-    import tempfile
-
-    path = sqlite_path
-    if path is None:
-        tmp = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)  # noqa: SIM115
-        path = Path(tmp.name)
-        tmp.close()
+    path = Path(":memory:") if sqlite_path is None else sqlite_path
     manifest = run(
         day=day,
         store="sqlite",
