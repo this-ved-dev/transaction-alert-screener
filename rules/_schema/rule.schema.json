@@ -52,6 +52,15 @@
       ],
       "description": "shadow = run and record hits, never create alerts"
     },
+    "output": {
+      "type": "string",
+      "enum": [
+        "hit",
+        "ctr_candidate"
+      ],
+      "default": "hit",
+      "description": "table the engine writes rows to: hit (alert queue) or ctr_candidate (R01's list, reconciled against the core)"
+    },
     "key": {
       "type": "string",
       "enum": [

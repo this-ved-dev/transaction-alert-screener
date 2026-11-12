@@ -1,0 +1,21 @@
+id: r01
+name: CTR candidate (cash in or cash out above $10,000 in one business day)
+owner: vedant
+version: 1
+mode: live
+output: ctr_candidate          # the CTR candidates list with a reconcile status, not the alert queue
+key: customer
+windows:
+  lookback_days: 1
+params:
+  threshold_usd: 10000.00
+weight: 1.0
+red_flag_ids: [RF-004]
+budget_per_month: 10
+tier_multipliers: { low: 1.0, medium: 1.0, high: 1.0 }   # statutory threshold: never scaled
+description: >
+  Statutory CTR candidates (31 CFR 1010.311/.313). Sums booked, unreversed USD cash per customer
+  per business day across all accounts and branches: teller and night-drop cash plus ATM cash.
+  Cash in and cash out are totalled separately and never netted, one row per direction. Weekend,
+  holiday and night-drop cash count on the business day it posts to. Fires when a direction
+  exceeds $10,000; exactly $10,000.00 does not.

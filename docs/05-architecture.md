@@ -136,7 +136,7 @@ Determinism (any day re-runnable from inputs + rule versions), compute separated
 
 **Day-0 contracts** (written into `docs/05-architecture.md` and enforced by tests; these are what let four people work in parallel):
 1. Canonical Parquet schema (column names, types) and the committed fixture Parquet (§ Canonical entry schema above; `screener fixtures`).
-2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description) and `rule.sql` returning `(customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
+2. **Rule contract:** `rules/<id>_<slug>/rule.yaml` (id, name, owner, version, mode, key, windows, params, weight, red_flag_ids, budget_per_month, description; optional `output`, default `hit`, `ctr_candidate` for R01) and `rule.sql` returning `(customer_id, account_id, business_day, group_key, matched_txn_ids, computed_values)`; the engine globs the folders; a rule can be added without touching shared code.
 3. **Evidence-panel contract:** `rules/<id>_<slug>/evidence.html`, a Django template partial receiving `hit` (with `computed_values`) and `txns`; the alert page includes one per hit. Owners build UI for their rules without editing the alert page.
 4. **Injector contract:** `rules/<id>_<slug>/inject.py` exposing `inject(df, rng, n) -> (df, cases)`; the US layer calls each and writes `answer_key.json`.
 5. **Hit → alert contract:** consolidation and scoring read only the six hit columns plus `rule.yaml` weight and mode.
