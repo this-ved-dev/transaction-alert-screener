@@ -1,0 +1,8 @@
+{# Basic summary; full flow timeline and agent evidence remain in TRA-38. #}
+<section class="evidence" data-rule="r05">
+  <h3>Rapid pass-through</h3>
+  <p>{{ hit.computed_values.anchor_count }} inbound entries met the
+    {{ hit.computed_values.outflow_ratio }} outflow threshold within
+    {{ hit.computed_values.outflow_window_hours }} hours.</p>
+  <p>Review each anchor separately: overlapping windows can share outbound entries.</p>
+</section>

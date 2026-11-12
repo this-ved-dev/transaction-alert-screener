@@ -19,7 +19,7 @@ Defaults are industry convention. Tier multipliers default 1.0 (configurable in 
 | **Account behaviour** (Vedanshu) | R4 | Dormant reactivation | **v1 (client):** no customer-initiated entry for ≥180 days (interest and fees do not reset; any deposit does), then **outbound ≥ $2,000** within 7 days. **v2:** ≥$5,000 in or out, or ≥10× prior 12-month average | account / 180 + 7 days | 10,420 accounts reactivate after 180+ days; 3,730 with ≥$5k in 7 days [measured]; fires from Apr 2023 | No native label; ~15 injected cases + 179-vs-180 fixture | ~42/month [measured, scaled]; the backtest demo | Live |
 | | R7 | New-account burst (mule) | Account age < 90 days; ≥5 distinct inbound senders in 7 days; ≥80% out within 48h | account / 7 days + 48h | "Open date" = first-seen after 90-day warm-up; ~45k new accounts/month [measured] | Fan_In 364, Layered_Fan_In 656, Deposit-Send on new accounts; ~10 injected | Measure in C1; budget ≤30/month | Live if under budget and after a client walkthrough of the 48h window (P2) |
 | | R8 | ATM anomaly | ≥5 ATM withdrawals in 24h; or daily ATM ≥$2,000 and ≥3× 90-day average; or ≥2 states in 24h | account / 24h + 90 days | Cash Withdrawal ≤$1,000 → ATM p=0.7, label-blind, seeded | Cash_Withdrawal typology 1,334 partially; ~8 injected multi-state | Measure in C1; budget ≤30/month | Live if under budget |
-| **Funds movement** (Abdul) | R5 | Rapid pass-through | Inbound ≥$5,000 from A; ≥80% leaves within 72h to ≠A; and trailing-90-day median daily volume < 20% of inbound, or outbound is cross-border or to a first-time beneficiary | account / 72h + 90 days | SAML-D all rails | Deposit-Send 945, Layered_Fan_Out 529, Gather-Scatter 354; Tide benchmark 22.5% precision, 66% recall [measured] | As written floods: 861k hits, 0.4% precision, ~9,600/month [measured]; budget ≤50 | Shadow until under budget **and** the client has walked through the 72h window. Kickoff pain point #1; priority P2 per the Nov 11 reply |
+| **Funds movement** (Abdul) | R5 | Rapid pass-through | Inbound ≥$5,000 from A; ≥80% leaves within 72h to ≠A; quiet accounts count all eligible outflows, busy accounts only XBCT/new-beneficiary amounts | account / 72h + 90 days | Both booked perspectives; native tuning pending TRA-24/TRA-30 | Native targets: Deposit-Send, Layered_Fan_Out, Gather-Scatter; injected cases 10/10 detected | Prior as-written research: ~9,600/month; current implementation has fixture comparison only, not a new native result; budget ≤50 | Shadow; native budget verification and client walkthrough still required |
 | | R10 | Round-dollar pattern | ≥5 non-cash transactions in 30 days, exact multiples of $1,000, each ≥$2,000 | customer / 30 days | 79 natural rows, 0 laundering [measured] | ~10 injected | ~0 natural | Live |
 | | R12 | Transfer splitting | (a) ≥3 transfers originator→same beneficiary, each < $10,000, total > $10,000 in 7 days; (b) funnel: ≥5 distinct senders → one receiver in 7 days, each < $10,000, total > $10,000, ≥3 senders new to the receiver | pair / receiver / 7 days | SAML-D non-cash rails | "Structuring" label = variant (b): 1,870 rows onto 75 receivers; matched labelled transactions found for 73/74 receivers active in the measured period | 2,454.82 potential alerts/month @100k [measured]; budget ≤40; see docs/09 | Both variants shadow: measured volume exceeds budget |
 | **Counterparty & rails** (Natalie) | R6 | High-risk jurisdiction transfer | **Outbound wires abroad first** (`PMNT/ICDT/XBCT`; inbound at lower weight). Any cross-border ≥$3,000 with a black-list country; cumulative ≥$10,000 in 30 days with grey-list or internal high-risk; **point-in-time lists** | customer × country / 1 and 30 days | SAML-D Cross-border 933,931 rows, 18 locations incl. Turkey, UAE, Nigeria, Albania, Morocco, Pakistan [measured] | Behavioural_Change_2 345, Structuring cross-border 723, Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget |
@@ -67,6 +67,27 @@ endpoints, and own-account transfers are excluded. The funnel requires receiver 
 sender-only canonical data is insufficient. Mode remains shadow until measured coverage and
 volume justify live use under the combined budget of 40/month per 100k accounts. Measurement
 command and results: `docs/09-evaluation.md`. Full panels and explain tools remain in TRA-38.
+
+### R05 implementation and pending tuning (TRA-33)
+
+Version 1 uses `min_inbound=5000`, `outflow_ratio=0.8`, `outflow_window_hours=72`,
+`baseline_days=90`, `quiet_ratio=0.2`, weight 4, budget 50/month at 100k, and shadow mode.
+RF-006 supplies the red-flag citation. The median daily payment volume includes inactive dates
+as zero and excludes the inbound date. The ledger must reach 90 days before the inbound for
+quietness or new-beneficiary absence to be considered known.
+
+An outflow must be strictly after the inbound and no later than 72 hours, to a destination
+account other than the originator or another account of the same customer. Cash deposits may
+have no originator account; other credits must identify it. Quiet accounts use all eligible
+outflows. Busy accounts use only cross-border or prior-90-day-new-beneficiary outflows toward
+the 80% threshold; a small risky outflow does not unlock large established domestic amounts.
+This conservative interpretation must be included in the client walkthrough.
+
+One account-day hit preserves all qualifying anchors, individual ratios and baseline figures.
+Matched IDs are deduplicated; per-anchor amounts can overlap and are not unique funds traced.
+No future entries or unchanged quiet-day windows produce hits. Native tuning and precision
+remain pending TRA-24/TRA-30. `docs/09-evaluation.md` records an explicitly synthetic three-point
+comparison and the remaining gates; it is not a claim of meeting the native alert budget.
 
 ## G1. Facts from the reply (verbatim meaning, our tag)
 1. **Priority:** wires and cash deposits first ("those two feed our three core rules"), ACH next, P2P last and possibly absent from the export. [client]
