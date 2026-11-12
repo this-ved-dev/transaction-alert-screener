@@ -20,7 +20,7 @@ Unit: customer × rule × window. Metrics: precision, recall, lift per rule on S
 | R09 | | | | | | | | |
 | R10 | live | 0 natural | N/A (no natural hits) | 100% injected (10/10) | N/A | Synthetic R10 answer key; native labels reported separately | Natural: 2022-10-07–2023-08-23 | See R10 commands below |
 | R11 | | | | | | | | |
-| R12 | | | | | | | | |
+| R12 | shadow | 2,454.82 potential customer-day alerts | Not computed | 100% injected pair cases (10/10) | Not computed | Pair answer key; native Structuring receiver coverage below | 2023-01-11–2023-08-23 | See R12 commands below |
 
 ### R10 measured baseline (TRA-36, 2026-11-11)
 
@@ -42,3 +42,45 @@ Commands: `uv run pytest rules/r10_round_dollar tests/test_contracts.py -q` and
   synthetic US grouping, the pending engine, or the TRA-40 evaluation harness.
 - Retain live mode for this implementation under the recorded budget. Re-measure after customer
   grouping or input-normalization changes; a real bank's exact-thousand frequency may differ.
+
+### R12 measured baseline and shadow decision (TRA-37, 2026-11-11)
+
+Commands: `uv run pytest rules/r12_transfer_splitting tests/test_contracts.py -q` and
+`uv run python scripts/measure_r12.py data/raw/saml_d/SAML-D.csv`.
+The script runs the actual rule SQL for every day from 2023-01-11 through 2023-08-23 (225 days),
+allowing 96 prior dates for the seven-date window and preceding 90-date relationship history.
+It completed in 88.391 seconds on this laptop. Input: 9,504,852 rows, 855,460 accounts;
+SHA-256 `5b71ce2ea7b47fe6f19da1aa151776b04ec74560a852c2c077df91d20b8b4ef9`.
+
+| Measure | Result |
+|---|---|
+| Pair variant a | 216,977 hits; 90,945 customers |
+| Funnel variant b | 9,531 hits; 8,221 receivers |
+| Combined distinct customer-day groups | 155,236 |
+| Potential alerts/month scaled to 100k accounts | 2,454.82; budget 40 |
+| Variant-specific hits/month scaled to 100k | a: 3,431.16; b: 150.72 |
+| Native Structuring receivers in full source / measured period | 75 / 74 |
+| Receivers caught with labelled Structuring transactions in matched evidence | 73 of the 74 active in period (98.65% receiver coverage) |
+| Injected pair cases detected | 10/10 (100% recall) |
+
+**Decision: both variants stay shadow.** The combined potential alert volume is about 61 times
+the budget. Variant b also exceeds the budget by itself; it does not catch every native receiver.
+No operational alerts should be created from these shadow hits. Subsequent tuning should measure
+count, amount and relationship-window changes with chronological validation before a mode change;
+this ticket preserves the specified defaults and documents the over-budget result.
+
+This is a direct-source baseline with one account per customer, both booked perspectives, and
+exact original amounts interpreted 1:1 as USD. Labels never enter the rule's `entries` view.
+Native receiver coverage counts only hits whose matched entries include an actual Structuring
+transaction; it is not customer-window precision or recall. The pre-period receiver is not
+claimed as detected. Month scaling uses 365.25/12 days and divides by 855,460/100,000 accounts.
+Re-measure after US customer grouping and cent normalization. The sender-only TRA-24 prototype
+cannot supply the funnel's receiver credit legs without further mapping; this script projects
+both directions directly and does not imply that integration is complete. The unified
+`screener evaluate` command remains owned by TRA-40.
+
+Tests execute both variants without the engine and cover counts, amount caps and totals, seven-
+date endpoints, 90-date history endpoints, old senders with prior large payments, repeated
+senders, own-account exclusions, eligibility, both booked legs, variant hit identities, and
+seeded label-blind injection. Pytest now uses importlib mode so multiple rule folders can each
+contain `test_rule.py` without module-name collisions.
