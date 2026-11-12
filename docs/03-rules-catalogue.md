@@ -21,7 +21,7 @@ Defaults are industry convention. Tier multipliers default 1.0 (configurable in 
 | | R8 | ATM anomaly | ≥5 ATM withdrawals in 24h; or daily ATM ≥$2,000 and ≥3× 90-day average; or ≥2 states in 24h | account / 24h + 90 days | Cash Withdrawal ≤$1,000 → ATM p=0.7, label-blind, seeded | Cash_Withdrawal typology 1,334 partially; ~8 injected multi-state | Measure in C1; budget ≤30/month | Live if under budget |
 | **Funds movement** (Abdul) | R5 | Rapid pass-through | Inbound ≥$5,000 from A; ≥80% leaves within 72h to ≠A; and trailing-90-day median daily volume < 20% of inbound, or outbound is cross-border or to a first-time beneficiary | account / 72h + 90 days | SAML-D all rails | Deposit-Send 945, Layered_Fan_Out 529, Gather-Scatter 354; Tide benchmark 22.5% precision, 66% recall [measured] | As written floods: 861k hits, 0.4% precision, ~9,600/month [measured]; budget ≤50 | Shadow until under budget **and** the client has walked through the 72h window. Kickoff pain point #1; priority P2 per the Nov 11 reply |
 | | R10 | Round-dollar pattern | ≥5 non-cash transactions in 30 days, exact multiples of $1,000, each ≥$2,000 | customer / 30 days | 79 natural rows, 0 laundering [measured] | ~10 injected | ~0 natural | Live |
-| | R12 | Transfer splitting | (a) ≥3 transfers originator→same beneficiary, each < $10,000, total > $10,000 in 7 days; (b) funnel: ≥5 distinct senders → one receiver in 7 days, each < $10,000, total > $10,000, ≥3 senders new to the receiver | pair / receiver / 7 days | SAML-D non-cash rails | "Structuring" label = variant (b): 1,870 rows onto 75 receivers [measured]; receiver-only query fired on 161,853, so the new-sender condition is mandatory | Measure in C1; budget ≤40 | (a) live; (b) live if under budget |
+| | R12 | Transfer splitting | (a) ≥3 transfers originator→same beneficiary, each < $10,000, total > $10,000 in 7 days; (b) funnel: ≥5 distinct senders → one receiver in 7 days, each < $10,000, total > $10,000, ≥3 senders new to the receiver | pair / receiver / 7 days | SAML-D non-cash rails | "Structuring" label = variant (b): 1,870 rows onto 75 receivers; matched labelled transactions found for 73/74 receivers active in the measured period | 2,454.82 potential alerts/month @100k [measured]; budget ≤40; see docs/09 | Both variants shadow: measured volume exceeds budget |
 | **Counterparty & rails** (Natalie) | R6 | High-risk jurisdiction transfer | **Outbound wires abroad first** (`PMNT/ICDT/XBCT`; inbound at lower weight). Any cross-border ≥$3,000 with a black-list country; cumulative ≥$10,000 in 30 days with grey-list or internal high-risk; **point-in-time lists** | customer × country / 1 and 30 days | SAML-D Cross-border 933,931 rows, 18 locations incl. Turkey, UAE, Nigeria, Albania, Morocco, Pakistan [measured] | Behavioural_Change_2 345, Structuring cross-border 723, Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget |
 | | R9 | Wire to new beneficiary | First outbound wire ≥$10,000 (≥$3,000 High) to a beneficiary unseen in 90 days; weight up if ≥3 new beneficiaries in 7 days | customer × beneficiary / 90 days | Cross-border = international wire; domestic wires from fixtures | Behavioural_Change_1 394, Fan_Out and Single_large cross-border | Measure in C1; budget ≤40 | Live if under budget. Debasish's #2 pain point |
 | | R11 | P2P anomaly | P2P ≥$2,500/day; or ≥10 distinct P2P counterparties in 7 days; or ≥5× 90-day baseline; tighter on small accounts | customer / 1, 7, 90 days | Debit-card rows < $1,000 between personal accounts → P2P p=0.3, label-blind, seeded | Fan_Out / Scatter-Gather debit (weak); ~10 injected | Measure in C1; budget ≤30 | **Shadow (P3)**: client says P2P is last and may be absent from the export; demo rail is synthetic |
@@ -48,6 +48,25 @@ Measurement: 79 qualifying natural SAML-D entries and zero natural customer-day 
 recall 10/10. Commands, assumptions, source hash and caveats are in `docs/09-evaluation.md`.
 This measurement uses one account per customer, both transfer legs, and original source amounts. Re-measure
 after US-layer grouping or amount normalization changes. No third-party rows are committed.
+
+### R12 implementation (TRA-37)
+
+Version 1 implements both variants in one SQL with variant-prefixed hit keys and weight 3.
+Pair variant: at least three payments, each at most $9,999.99, totalling at least $10,000.01
+in seven calendar dates. Funnel variant: at least five distinct senders including three
+new relationships, with the same per-entry cap and total minimum. New means no eligible
+payment for that sender/receiver pair in the 90 dates before the current seven-date window.
+Prior large payments count as relationship history; within-window repeats do not increase
+distinct or new-sender counts. These are project detection parameters, not an automatic
+regulatory finding. Red flags: RF-007 and RF-012 in `rules/red_flags.yaml`.
+
+Debit legs report the sender's customer with `group_key='a:<sender>><receiver>'`; credit legs
+report the receiver's customer with `group_key='b:<receiver>'`. Both require new qualifying
+activity on the run date. Cash, fees, interest, pending/reversed/non-USD entries, missing
+endpoints, and own-account transfers are excluded. The funnel requires receiver credit legs;
+sender-only canonical data is insufficient. Mode remains shadow until measured coverage and
+volume justify live use under the combined budget of 40/month per 100k accounts. Measurement
+command and results: `docs/09-evaluation.md`. Full panels and explain tools remain in TRA-38.
 
 ## G1. Facts from the reply (verbatim meaning, our tag)
 1. **Priority:** wires and cash deposits first ("those two feed our three core rules"), ACH next, P2P last and possibly absent from the export. [client]

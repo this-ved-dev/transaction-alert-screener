@@ -1,0 +1,10 @@
+{# Basic summary; full panel and agent evidence are tracked in TRA-38. #}
+<section class="evidence" data-rule="r12">
+  <h3>Transfer splitting — variant {{ hit.computed_values.variant }}</h3>
+  <p>{{ hit.computed_values.entry_count }} non-cash entries in
+    {{ hit.computed_values.window_days }} days, totalling ${{ hit.computed_values.total_amount }}.</p>
+  {% if hit.computed_values.variant == 'b' %}
+  <p>{{ hit.computed_values.sender_count }} senders, including
+    {{ hit.computed_values.new_sender_count }} new relationships.</p>
+  {% endif %}
+</section>
