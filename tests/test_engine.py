@@ -282,6 +282,19 @@ def test_rule_version_rejects_param_change_without_bump(tmp_path):
     assert ok["hit_count"] == 0  # 10500 no longer exceeds 20000
 
 
+def test_rule_version_rejects_tier_multiplier_change_without_bump(tmp_path):
+    """P2: tier_multipliers are part of the immutable definition."""
+    rules_root = _live_rules_copy(tmp_path, "r00_example")
+    db = tmp_path / "tier.sqlite"
+    run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+    spec_path = rules_root / "r00_example" / "rule.yaml"
+    spec = yaml.safe_load(spec_path.read_text())
+    spec["tier_multipliers"] = {"low": 1.0, "medium": 2.0, "high": 1.0}
+    spec_path.write_text(yaml.safe_dump(spec))
+    with pytest.raises(RuleError, match="bump version"):
+        run(day=fx.DEMO_DAY, store="sqlite", sqlite_path=db, parquet=fx.OUT, rules_dir=rules_root)
+
+
 def test_duplicate_hit_identities_fail_before_write(tmp_path):
     """P2: one execution returning the same HIT_IDENTITY twice must not silently overwrite."""
     rules_root = tmp_path / "rules"

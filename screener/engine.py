@@ -218,6 +218,7 @@ def _ensure_schema_sqlite(conn: sqlite3.Connection) -> None:
             weight REAL NOT NULL,
             red_flag_ids TEXT NOT NULL,
             sql_sha256 TEXT NOT NULL DEFAULT '',
+            tier_multipliers TEXT NOT NULL DEFAULT '{}',
             UNIQUE (rule_id, version)
         );
         CREATE TABLE IF NOT EXISTS run (
@@ -271,6 +272,7 @@ def _ensure_schema_postgres(conn) -> None:
                 weight DOUBLE PRECISION NOT NULL,
                 red_flag_ids JSONB NOT NULL,
                 sql_sha256 TEXT NOT NULL DEFAULT '',
+                tier_multipliers JSONB NOT NULL DEFAULT '{}'::jsonb,
                 UNIQUE (rule_id, version)
             );
             CREATE TABLE IF NOT EXISTS run (
@@ -313,9 +315,15 @@ def _ensure_schema_postgres(conn) -> None:
 
 def _rule_definition(rule: LoadedRule) -> dict[str, Any]:
     """Immutable fields stored with a rule_version; changing any requires a version bump."""
+    multipliers = rule.spec.get("tier_multipliers") or {"low": 1.0, "medium": 1.0, "high": 1.0}
     return {
         "mode": rule.mode,
         "params": rule.spec["params"],
+        "tier_multipliers": {
+            "low": float(multipliers.get("low", 1.0)),
+            "medium": float(multipliers.get("medium", 1.0)),
+            "high": float(multipliers.get("high", 1.0)),
+        },
         "weight": float(rule.spec["weight"]),
         "red_flag_ids": rule.spec["red_flag_ids"],
         "sql_sha256": hashlib.sha256(rule.sql_template.encode()).hexdigest(),
@@ -330,22 +338,35 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
     """
     definition = _rule_definition(rule)
     params_json = json.dumps(definition["params"], sort_keys=True)
+    tiers_json = json.dumps(definition["tier_multipliers"], sort_keys=True)
     flags_json = json.dumps(definition["red_flag_ids"])
     sql_sha = definition["sql_sha256"]
     if store == "sqlite":
-        # Migrate older DBs that predate sql_sha256.
+        # Migrate older DBs that predate sql_sha256 / tier_multipliers columns.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(rule_version)").fetchall()}
         if "sql_sha256" not in cols:
             conn.execute("ALTER TABLE rule_version ADD COLUMN sql_sha256 TEXT NOT NULL DEFAULT ''")
+        if "tier_multipliers" not in cols:
+            conn.execute(
+                "ALTER TABLE rule_version ADD COLUMN tier_multipliers TEXT NOT NULL DEFAULT '{}'"
+            )
         row = conn.execute(
-            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256 "
+            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers "
             "FROM rule_version WHERE rule_id = ? AND version = ?",
             (rule.rule_id, rule.version),
         ).fetchone()
         if row is not None:
+            stored_tiers = json.loads(row["tier_multipliers"] or "{}")
+            if not stored_tiers:
+                stored_tiers = {"low": 1.0, "medium": 1.0, "high": 1.0}
             existing = {
                 "mode": row["mode"],
                 "params": json.loads(row["params"]),
+                "tier_multipliers": {
+                    "low": float(stored_tiers.get("low", 1.0)),
+                    "medium": float(stored_tiers.get("medium", 1.0)),
+                    "high": float(stored_tiers.get("high", 1.0)),
+                },
                 "weight": float(row["weight"]),
                 "red_flag_ids": json.loads(row["red_flag_ids"]),
                 "sql_sha256": row["sql_sha256"] or "",
@@ -359,8 +380,8 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
         cur = conn.execute(
             """
             INSERT INTO rule_version
-                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 rule.rule_id,
@@ -370,6 +391,7 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
                 definition["weight"],
                 flags_json,
                 sql_sha,
+                tiers_json,
             ),
         )
         return int(cur.lastrowid)
@@ -380,15 +402,29 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
             """
         )
         cur.execute(
-            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256 "
+            """
+            ALTER TABLE rule_version
+            ADD COLUMN IF NOT EXISTS tier_multipliers JSONB NOT NULL DEFAULT '{}'::jsonb
+            """
+        )
+        cur.execute(
+            "SELECT id, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers "
             "FROM rule_version WHERE rule_id = %s AND version = %s",
             (rule.rule_id, rule.version),
         )
         row = cur.fetchone()
         if row is not None:
+            stored_tiers = row[6] if isinstance(row[6], dict) else json.loads(row[6] or "{}")
+            if not stored_tiers:
+                stored_tiers = {"low": 1.0, "medium": 1.0, "high": 1.0}
             existing = {
                 "mode": row[1],
                 "params": row[2] if isinstance(row[2], dict) else json.loads(row[2]),
+                "tier_multipliers": {
+                    "low": float(stored_tiers.get("low", 1.0)),
+                    "medium": float(stored_tiers.get("medium", 1.0)),
+                    "high": float(stored_tiers.get("high", 1.0)),
+                },
                 "weight": float(row[3]),
                 "red_flag_ids": row[4] if isinstance(row[4], list) else json.loads(row[4]),
                 "sql_sha256": row[5] or "",
@@ -402,8 +438,8 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
         cur.execute(
             """
             INSERT INTO rule_version
-                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256)
-            VALUES (%s, %s, %s, %s::jsonb, %s, %s::jsonb, %s)
+                (rule_id, version, mode, params, weight, red_flag_ids, sql_sha256, tier_multipliers)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s::jsonb)
             RETURNING id
             """,
             (
@@ -414,6 +450,7 @@ def _ensure_rule_version(conn, rule: LoadedRule, store: str) -> int:
                 definition["weight"],
                 flags_json,
                 sql_sha,
+                tiers_json,
             ),
         )
         return int(cur.fetchone()[0])
